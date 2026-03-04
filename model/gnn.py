@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from message_passing import MessagePassingLayer
+from model.message_passing import MessagePassingLayer
 
 class GNN(nn.Module):
     def __init__(self, node_dim, edge_dim, hidden_dim, num_layers):
@@ -40,7 +40,7 @@ class GNN(nn.Module):
             return out
     
 if __name__ == "__main__":
-    from message_passing import MessagePassingLayer
+    from model.message_passing import MessagePassingLayer
     import numpy as np
 
     edge_index = torch.tensor(np.load('data/edge_index.npy'), dtype=torch.long)
