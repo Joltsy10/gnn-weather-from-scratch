@@ -7,16 +7,20 @@ def load_config(path='config.yaml'):
     with open(path) as f:
         return yaml.safe_load(f)
 
-def load_data(surface_path, pressure_2021_path, pressure_2022_path):
+def load_data(years=['2019', '2020', '2021', '2022']):
     """
     Load ERA5 files and flatten from (time, lat, lon) to (time, N, 7)
     where N = lat * lon = 15609 grid nodes.
     """
-    surface = xr.open_dataset(surface_path)
-    pressure = xr.concat([
-        xr.open_dataset(pressure_2021_path),
-        xr.open_dataset(pressure_2022_path)
-    ], dim='valid_time')
+
+    surface_list = []
+    pressure_list = []
+    for year in years:
+        surface_list.append(xr.open_dataset(f'data/era5_surface_{year}.nc'))
+        pressure_list.append(xr.open_dataset(f'data/era5_pressure_{year}.nc'))
+
+    surface = xr.concat(surface_list, dim='valid_time')
+    pressure = xr.concat(pressure_list, dim='valid_time')
 
     # Number of grid points
     n_lat = len(surface.latitude)
@@ -81,14 +85,11 @@ def build_edges(lat_flat, lon_flat, k=16):
 
     return edge_index, edge_features
 
-def build_and_save(surface_path, pressure_2021_path, pressure_2022_path, 
-                   output_dir):
+def build_and_save(output_dir):
     print("Loading data...")
 
     config = load_config()
-    node_features, lat_flat, lon_flat = load_data(
-        surface_path, pressure_2021_path, pressure_2022_path
-    )
+    node_features, lat_flat, lon_flat = load_data()
 
     print("Normalizing...")
     node_features, mean, std = normalize(node_features)
@@ -114,9 +115,6 @@ def build_and_save(surface_path, pressure_2021_path, pressure_2022_path,
 
 if __name__ == "__main__":
     build_and_save(
-        surface_path='data/era5_surface.nc',
-        pressure_2021_path='data/era5_pressure_2021.nc',
-        pressure_2022_path='data/era5_pressure_2022.nc',
         output_dir='data'
     )
 

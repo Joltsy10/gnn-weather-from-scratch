@@ -32,6 +32,12 @@ def train(device = 'cpu'):
     edge_features = edge_features.to(device)
     node_features = node_features.to(device)
 
+    node_features, edge_index, edge_features = load_data()
+
+    train = node_features[:2920]   # 2019 + 2020
+    val   = node_features[2920:4380]  # 2021
+    test  = node_features[4380:]      # 2022
+
     model = GNN(node_dim=7, edge_dim=3).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
     loss_fn = nn.MSELoss()
@@ -40,9 +46,9 @@ def train(device = 'cpu'):
         model.train()
         total_loss = 0.0
 
-        for t in range(T -1):
-            x = node_features[t] # (N, 7)
-            y = node_features[t + 1] # (N, 7)
+        for t in range(train.shape[0] -1):
+            x = train[t] # (N, 7)
+            y = train[t + 1] # (N, 7)
 
             pred = model(x, edge_index, edge_features) # (N, 7)
             loss = loss_fn(pred, y)
@@ -53,8 +59,15 @@ def train(device = 'cpu'):
 
             total_loss += loss
 
-        avg_loss = total_loss/(T - 1)
-        print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — loss: {avg_loss:.6f}")
+        model.eval()
+        with torch.no_grad():
+            val_loss = sum(
+                loss_fn(model(val[t], edge_index, edge_features), val[t+1])
+                for t in range(len(val)-1)
+            ) / (len(val)-1)
+        avg_loss = total_loss/(train.shape[0] - 1)
+
+        print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — train: {avg_loss:.6f} val: {val_loss:.6f}")
 
     torch.save(model.state_dict(), "model.pt")
     print("Model saved to model.pt")
