@@ -9,6 +9,7 @@ node_features = torch.tensor(
         np.load('data/node_features.npy'), dtype=torch.float32
     ) # (T, N, 7)
 
+node_features = node_features[:2688]
 T = node_features.shape[0]
 
 loss_fn = nn.MSELoss()

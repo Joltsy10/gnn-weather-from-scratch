@@ -32,11 +32,9 @@ def train(device = 'cpu'):
     edge_features = edge_features.to(device)
     node_features = node_features.to(device)
 
-    node_features, edge_index, edge_features = load_data()
-
-    train = node_features[:2920]   # 2019 + 2020
-    val   = node_features[2920:4380]  # 2021
-    test  = node_features[4380:]      # 2022
+    train = node_features[:2688].to(device)   # 2019 + 2020
+    val   = node_features[2688:4032].to(device)  # 2021
+    test  = node_features[4032:].to(device)               # 2022
 
     model = GNN(node_dim=7, edge_dim=3).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
@@ -60,17 +58,20 @@ def train(device = 'cpu'):
             total_loss += loss
 
         model.eval()
+        val_total = 0.0
         with torch.no_grad():
-            val_loss = sum(
-                loss_fn(model(val[t], edge_index, edge_features), val[t+1])
-                for t in range(len(val)-1)
-            ) / (len(val)-1)
+            for t in range(len(val)-1):
+                val_total += loss_fn(model(val[t], edge_index, edge_features), val[t+1]).item()
+        val_loss = val_total / (len(val)-1)
         avg_loss = total_loss/(train.shape[0] - 1)
 
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — train: {avg_loss:.6f} val: {val_loss:.6f}")
+        best_val = float('inf')
 
-    torch.save(model.state_dict(), "model.pt")
-    print("Model saved to model.pt")
+        if val_loss < best_val:
+            best_val = val_loss
+            torch.save(model.state_dict(), 'model.pt')
+            print(f"  saved new best val: {best_val:.6f}")
 
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
