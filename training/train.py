@@ -1,10 +1,15 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import yaml
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from model.gnn import GNN
+
+def load_config(path='config.yaml'):
+    with open(path) as f:
+        return yaml.safe_load(f)
 
 def load_data():
     node_features = torch.tensor(
@@ -18,7 +23,8 @@ def load_data():
     )# (E, 3)
     return node_features, edge_index, edge_features
 
-def train(num_epochs = 10, lr = 1e-3, device = 'cpu'):
+def train(device = 'cpu'):
+    config = load_config()
     node_features, edge_index, edge_features = load_data()
     T = node_features.shape[0]
 
@@ -27,10 +33,10 @@ def train(num_epochs = 10, lr = 1e-3, device = 'cpu'):
     node_features = node_features.to(device)
 
     model = GNN(node_dim=7, edge_dim=3, hidden_dim=64, num_layers=3).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
     loss_fn = nn.MSELoss()
 
-    for epoch in range(num_epochs):
+    for epoch in range(config['training']['num_epochs']):
         model.train()
         total_loss = 0.0
 
@@ -48,7 +54,7 @@ def train(num_epochs = 10, lr = 1e-3, device = 'cpu'):
             total_loss += loss
 
         avg_loss = total_loss/(T - 1)
-        print(f"Epoch {epoch+1}/{num_epochs} — loss: {avg_loss:.6f}")
+        print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — loss: {avg_loss:.6f}")
 
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

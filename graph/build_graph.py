@@ -1,6 +1,11 @@
 import numpy as np
 from scipy.spatial import cKDTree
 import xarray as xr
+import yaml
+
+def load_config(path='config.yaml'):
+    with open(path) as f:
+        return yaml.safe_load(f)
 
 def load_data(surface_path, pressure_2021_path, pressure_2022_path):
     """
@@ -48,7 +53,7 @@ def normalize(node_features):
     std  = node_features.std(axis=(0, 1), keepdims=True)   # (1, 1, 7)
     return (node_features - mean) / std, mean.squeeze(), std.squeeze()
 
-def build_edges(lat_flat, lon_flat, k=8):
+def build_edges(lat_flat, lon_flat, k=16):
     """
     Connect each node to its k nearest neighbours.
     Returns edge_index of shape (2, E) and edge_features of shape (E, 3)
@@ -77,8 +82,10 @@ def build_edges(lat_flat, lon_flat, k=8):
     return edge_index, edge_features
 
 def build_and_save(surface_path, pressure_2021_path, pressure_2022_path, 
-                   output_dir, k=8):
+                   output_dir):
     print("Loading data...")
+
+    config = load_config()
     node_features, lat_flat, lon_flat = load_data(
         surface_path, pressure_2021_path, pressure_2022_path
     )
@@ -89,7 +96,7 @@ def build_and_save(surface_path, pressure_2021_path, pressure_2022_path,
     np.save(f'{output_dir}/std.npy', std)
     
     print("Building edges...")
-    edge_index, edge_features = build_edges(lat_flat, lon_flat, k=k)
+    edge_index, edge_features = build_edges(lat_flat, lon_flat, k=config['graph']['k'])
     
     print(f"Nodes: {len(lat_flat)}")
     print(f"Edges: {edge_index.shape[1]}")
@@ -110,7 +117,6 @@ if __name__ == "__main__":
         surface_path='data/era5_surface.nc',
         pressure_2021_path='data/era5_pressure_2021.nc',
         pressure_2022_path='data/era5_pressure_2022.nc',
-        output_dir='data',
-        k=16
+        output_dir='data'
     )
 
