@@ -14,7 +14,9 @@ config.yaml     Hyperparameters
 
 ## Data
 
-ERA5 reanalysis, India bounding box, 2021 to 2022. 6-hourly timesteps, 7 variables: u10, v10, sp, t850, t500, z850, z500. Flattened to 15,609 nodes (129 lat x 121 lon).
+ERA5 reanalysis, India bounding box, 2019 to 2022. 6-hourly timesteps, 7 variables: u10, v10, sp, t850, t500, z850, z500. Flattened to 15,609 nodes (129 lat x 121 lon).
+
+Split chronologically: 2019/2020 for training, 2021 for validation, 2022 for test.
 
 Graph edges built with KDTree k-nearest neighbours. Each node connects to its k closest neighbours by Euclidean distance in Cartesian space. Edge features are delta-lat, delta-lon and distance.
 
@@ -26,7 +28,9 @@ The model takes one timestep as input and predicts the next.
 
 ## Results
 
-Persistence baseline MSE (predicting t as t+1): **0.0934**
+**Ablation study (2-year run, no val split):**
+
+Persistence baseline: **0.0934**
 
 | Config | MSE |
 |---|---|
@@ -37,21 +41,31 @@ Persistence baseline MSE (predicting t as t+1): **0.0934**
 | 1 layer k=16 | 0.0739 |
 | 3 layers k=16 | 0.0742 |
 
-Best result is 1 layer with k=16, beating persistence by about 21%. Wider connectivity consistently outperforms deeper stacking for this task. Adding more layers past 1 gives marginal or no improvement, likely because repeated local aggregation over a small regional domain starts to wash out spatial signal rather than sharpen it.
+Wider connectivity consistently outperforms deeper stacking. Adding layers past 1 gives marginal improvement, likely because repeated local aggregation over a small regional domain starts to wash out spatial signal.
 
-**Per-variable MAE (normalized by std, best config):**
+**Final evaluation (4-year run, train/val/test split, 1 layer k=16):**
+
+| Split | Persistence | GNN |
+|---|---|---|
+| Train | 0.1027 | 0.0789 |
+| Val | 0.1037 | 0.0950 |
+| Test | 0.1014 | 0.0945 |
+
+Beats persistence on all splits. The smaller gap on val and test vs train is expected since the model was trained on 2019/2020 and evaluated on later years with different seasonal patterns.
+
+**Per-variable MAE on test set (normalized by std):**
 
 | Variable | MAE | Normalized |
 |---|---|---|
-| u10 | 1.317 m/s | 0.434 |
-| v10 | 1.059 m/s | 0.413 |
-| sp | 907 Pa | 0.022 |
-| t850 | 2.35 K | 0.037 |
-| t500 | 2.05 K | 0.036 |
-| z850 | 150.7 m²/s² | 0.021 |
-| z500 | 375.1 m²/s² | 0.018 |
+| u10 | 1.258 m/s | 0.442 |
+| v10 | 0.893 m/s | 0.361 |
+| sp | 1047 Pa | 0.025 |
+| t850 | 3.50 K | 0.031 |
+| t500 | 3.15 K | 0.039 |
+| z850 | 579.8 m²/s² | 0.079 |
+| z500 | 974.3 m²/s² | 0.047 |
 
-Thermodynamic variables (sp, t, z) are predicted well with normalized errors below 0.04. Wind components (u10, v10) are roughly 10x harder, with normalized errors around 0.4. This is consistent with the fact that wind is turbulent and directionally variable at short timescales, while pressure and temperature fields are smoother and slower to change.
+Thermodynamic variables (sp, t, z) are predicted well with normalized errors below 0.08. Wind components (u10, v10) are roughly 5x harder, which is consistent with wind being more turbulent and directionally variable at short timescales.
 
 ## Running
 
@@ -65,7 +79,7 @@ python training/train.py
 # Persistence baseline
 python training/baseline.py
 
-# Inference on a specific timestep
+# Inference and test evaluation
 python training/inference.py
 ```
 
@@ -82,7 +96,7 @@ model:
   num_layers: 1
 
 training:
-  num_epochs: 10
+  num_epochs: 30
   lr: 0.001
 ```
 
