@@ -8,7 +8,8 @@ A minimal graph neural network for short-range weather forecasting over India, b
 data/           ERA5 surface and pressure level data, processed graph tensors
 graph/          Graph construction from ERA5 grid
 model/          Message passing layer and full GNN
-training/       Training loop and persistence baseline
+training/       Training loop, persistence baseline and inference
+config.yaml     Hyperparameters
 ```
 
 ## Data
@@ -38,6 +39,20 @@ Persistence baseline MSE (predicting t as t+1): **0.0934**
 
 Best result is 1 layer with k=16, beating persistence by about 21%. Wider connectivity consistently outperforms deeper stacking for this task. Adding more layers past 1 gives marginal or no improvement, likely because repeated local aggregation over a small regional domain starts to wash out spatial signal rather than sharpen it.
 
+**Per-variable MAE (normalized by std, best config):**
+
+| Variable | MAE | Normalized |
+|---|---|---|
+| u10 | 1.317 m/s | 0.434 |
+| v10 | 1.059 m/s | 0.413 |
+| sp | 907 Pa | 0.022 |
+| t850 | 2.35 K | 0.037 |
+| t500 | 2.05 K | 0.036 |
+| z850 | 150.7 m²/s² | 0.021 |
+| z500 | 375.1 m²/s² | 0.018 |
+
+Thermodynamic variables (sp, t, z) are predicted well with normalized errors below 0.04. Wind components (u10, v10) are roughly 10x harder, with normalized errors around 0.4. This is consistent with the fact that wind is turbulent and directionally variable at short timescales, while pressure and temperature fields are smoother and slower to change.
+
 ## Running
 
 ```bash
@@ -49,6 +64,26 @@ python training/train.py
 
 # Persistence baseline
 python training/baseline.py
+
+# Inference on a specific timestep
+python training/inference.py
+```
+
+## Configuration
+
+All hyperparameters live in config.yaml:
+
+```yaml
+graph:
+  k: 16
+
+model:
+  hidden_dim: 64
+  num_layers: 1
+
+training:
+  num_epochs: 10
+  lr: 0.001
 ```
 
 ## Dependencies
@@ -58,4 +93,5 @@ torch
 numpy
 scipy
 netCDF4
+pyyaml
 ```
