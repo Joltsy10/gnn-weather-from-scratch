@@ -32,7 +32,7 @@ def train(device = 'cpu'):
     edge_features = edge_features.to(device)
     node_features = node_features.to(device)
 
-    model = GNN(node_dim=7, edge_dim=3, hidden_dim=64, num_layers=3).to(device)
+    model = GNN(node_dim=7, edge_dim=3).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
     loss_fn = nn.MSELoss()
 
