@@ -56,8 +56,8 @@ def train(device = 'cpu'):
         avg_loss = total_loss/(T - 1)
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — loss: {avg_loss:.6f}")
 
-    torch.save(model.state_dict(), f"model_{config['graph']['k']}_{config['training']['num_layers']}.pt")
-    print(f"Model saved to model_{config['graph']['k']}_{config['training']['num_layers']}.pt")
+    torch.save(model.state_dict(), "model.pt")
+    print("Model saved to model.pt")
 
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
