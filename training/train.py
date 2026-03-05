@@ -26,7 +26,7 @@ def train(num_epochs = 10, lr = 1e-3, device = 'cpu'):
     edge_features = edge_features.to(device)
     node_features = node_features.to(device)
 
-    model = GNN(node_dim=7, edge_dim=3, hidden_dim=64, num_layers=6).to(device)
+    model = GNN(node_dim=7, edge_dim=3, hidden_dim=64, num_layers=3).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.MSELoss()
 

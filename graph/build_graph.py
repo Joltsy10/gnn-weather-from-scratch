@@ -111,6 +111,6 @@ if __name__ == "__main__":
         pressure_2021_path='data/era5_pressure_2021.nc',
         pressure_2022_path='data/era5_pressure_2022.nc',
         output_dir='data',
-        k=8
+        k=16
     )
 
