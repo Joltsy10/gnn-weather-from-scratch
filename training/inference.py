@@ -14,6 +14,7 @@ def load_config(path='config.yaml'):
     
 def inference(timestep=0):
     config = load_config()
+    K = 4
 
     node_features = torch.tensor(
         np.load('data/node_features.npy'), dtype=torch.float32
@@ -39,25 +40,30 @@ def inference(timestep=0):
     pred_denorm = pred.numpy() * std + mean
     actual_denorm = test[timestep + 1].numpy() * std + mean
 
-    loss_fn = nn.MSELoss()
-    total = 0.0
+    mae_per_step = np.zeros(K)
+    counts = 0
     with torch.no_grad():
-        for t in range(len(test)-1):
-            p = model(test[t], edge_index, edge_features)
-            total += loss_fn(p, test[t+1]).item()
-    test_mse = total / (len(test)-1)
+        for t in range(len(test) - K):
+            x = test[t]
+            for k in range(K):
+                pred = model(x, edge_index, edge_features)
+                mae_per_step[k] += torch.mean(torch.abs(pred - test[t + k + 1])).item()
+                x = pred
+            counts += 1
 
-    return pred_denorm, actual_denorm, test_mse
+    mae_per_step /= counts
+    return pred_denorm, actual_denorm, mae_per_step
 
 if __name__ == "__main__":
-    pred, actual, test_mse = inference(timestep=0)
+    pred, actual, mae_per_step = inference(timestep=0)
     std = np.load('data/std.npy')
 
-    print(f"Predicted shape: {pred.shape}")
     var_names = ['u10', 'v10', 'sp', 't850', 't500', 'z850', 'z500']
     for i, name in enumerate(var_names):
         mae = np.mean(np.abs(pred[:, i] - actual[:, i]))
         print(f"{name}: MAE = {mae:.4f} (normalized: {mae/std[i]:.4f})")
 
-    print(f"\nTest MSE:         {test_mse:.6f}")
-    print(f"Test persistence: 0.101400")
+    print("\nRollout MAE by lead time:")
+    for k in range(len(mae_per_step)):
+        hours = (k + 1) * 6
+        print(f"  T+{k+1} ({hours}h): {mae_per_step[k]:.6f}")

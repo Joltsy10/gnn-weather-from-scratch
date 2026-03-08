@@ -40,17 +40,20 @@ def train(device = 'cpu'):
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
     loss_fn = nn.MSELoss()
     best_val = float('inf')
+    K = 4
 
     for epoch in range(config['training']['num_epochs']):
         model.train()
         total_loss = 0.0
 
-        for t in range(train.shape[0] -1):
+        for t in range(train.shape[0] - K):
             x = train[t] # (N, 7)
-            y = train[t + 1] # (N, 7)
-
-            pred = model(x, edge_index, edge_features) # (N, 7)
-            loss = loss_fn(pred, y)
+            loss = 0
+    
+            for k in range(K):
+                pred = model(x, edge_index, edge_features) # (N, 7)
+                loss += loss_fn(pred, train[t + k + 1])
+                x = pred
 
             optimizer.zero_grad()
             loss.backward()
@@ -61,9 +64,13 @@ def train(device = 'cpu'):
         model.eval()
         val_total = 0.0
         with torch.no_grad():
-            for t in range(len(val)-1):
-                val_total += loss_fn(model(val[t], edge_index, edge_features), val[t+1]).item()
-        val_loss = val_total / (len(val)-1)
+            for t in range(len(val)-K):
+                x = val[t]
+                for k in range(K):
+                    pred = model(x, edge_index, edge_features)
+                    val_total += loss_fn(pred, val[t + k + 1]).item()
+                    x = pred
+        val_loss = val_total / ((len(val)-K) * K)
         avg_loss = total_loss/(train.shape[0] - 1)
 
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — train: {avg_loss:.6f} val: {val_loss:.6f}")
