@@ -39,6 +39,7 @@ def train(device = 'cpu'):
     model = GNN(node_dim=7, edge_dim=3).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
     loss_fn = nn.MSELoss()
+    best_val = float('inf')
 
     for epoch in range(config['training']['num_epochs']):
         model.train()
@@ -66,7 +67,6 @@ def train(device = 'cpu'):
         avg_loss = total_loss/(train.shape[0] - 1)
 
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — train: {avg_loss:.6f} val: {val_loss:.6f}")
-        best_val = float('inf')
 
         if val_loss < best_val:
             best_val = val_loss
