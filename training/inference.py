@@ -35,7 +35,8 @@ def inference(timestep=0):
 
     x = test[timestep]
     with torch.no_grad():
-        pred = model(x, edge_index, edge_features)
+        delta = model(x, edge_index, edge_features)
+        pred = x + delta
 
     pred_denorm = pred.numpy() * std + mean
     actual_denorm = test[timestep + 1].numpy() * std + mean
@@ -46,7 +47,8 @@ def inference(timestep=0):
         for t in range(len(test) - K):
             x = test[t]
             for k in range(K):
-                pred = model(x, edge_index, edge_features)
+                delta = model(x, edge_index, edge_features)
+                pred = x + delta
                 mae_per_step[k] += torch.mean(torch.abs(pred - test[t + k + 1])).item()
                 x = pred
             counts += 1

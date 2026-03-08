@@ -41,6 +41,7 @@ def train(device = 'cpu', resume=False):
         model.load_state_dict(torch.load('model.pt', map_location=device))
     print("Resumed from checkpoint")
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
     loss_fn = nn.MSELoss()
     best_val = float('inf')
     K = 4
@@ -54,12 +55,14 @@ def train(device = 'cpu', resume=False):
             loss = 0
     
             for k in range(K):
-                pred = model(x, edge_index, edge_features) # (N, 7)
+                delta = model(x, edge_index, edge_features)
+                pred = x + delta
                 loss += loss_fn(pred, train[t + k + 1])
                 x = pred
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             total_loss += loss
@@ -82,8 +85,10 @@ def train(device = 'cpu', resume=False):
             best_val = val_loss
             torch.save(model.state_dict(), 'model.pt')
             print(f"  saved new best val: {best_val:.6f}")
+        scheduler.step(val_loss)
+    
 
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
-    train(device=device, resume=True)
+    train(device=device, resume=False)

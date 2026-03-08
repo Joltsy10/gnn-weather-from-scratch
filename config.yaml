@@ -2,7 +2,7 @@ graph:
   k: 16
 
 model:
-  hidden_dim: 64
+  hidden_dim: 128
   num_layers: 2
 
 training:
