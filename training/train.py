@@ -23,7 +23,7 @@ def load_data():
     )# (E, 3)
     return node_features, edge_index, edge_features
 
-def train(device = 'cpu'):
+def train(device = 'cpu', resume=False):
     config = load_config()
     node_features, edge_index, edge_features = load_data()
     T = node_features.shape[0]
@@ -37,6 +37,9 @@ def train(device = 'cpu'):
     test  = node_features[4032:].to(device)               # 2022
 
     model = GNN(node_dim=7, edge_dim=3).to(device)
+    if resume and os.path.exists('model.pt'):
+        model.load_state_dict(torch.load('model.pt', map_location=device))
+    print("Resumed from checkpoint")
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
     loss_fn = nn.MSELoss()
     best_val = float('inf')
@@ -83,4 +86,4 @@ def train(device = 'cpu'):
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
-    train(device=device)
+    train(device=device, resume=True)
