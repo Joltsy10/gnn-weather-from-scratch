@@ -52,8 +52,8 @@ if __name__ == "__main__":
 
     edge_index = torch.tensor(np.load('data/edge_index.npy'), dtype=torch.long)
     edge_features = torch.tensor(np.load('data/edge_features.npy'), dtype=torch.float32)
-    node_features = torch.tensor(np.load('data/node_features.npy')[0], dtype=torch.float32)
+    node_features = torch.tensor(np.load('data/node_features.npy')[:4], dtype=torch.float32)
 
     model = GNN(node_dim=7, edge_dim=3)
     out = model(node_features, edge_index, edge_features)
-    print(out.shape)  # should be (15609, 7)
+    print(out.shape)  # should be (4, 15609, 7)

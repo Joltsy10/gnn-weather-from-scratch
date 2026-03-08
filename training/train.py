@@ -39,9 +39,9 @@ def train(device = 'cpu', resume=False):
     model = GNN(node_dim=7, edge_dim=3).to(device)
     if resume and os.path.exists('model.pt'):
         model.load_state_dict(torch.load('model.pt', map_location=device))
-    print("Resumed from checkpoint")
+        print("Resumed from checkpoint")
     optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)    
     loss_fn = nn.MSELoss()
     best_val = float('inf')
     K = 4
@@ -70,10 +70,11 @@ def train(device = 'cpu', resume=False):
         model.eval()
         val_total = 0.0
         with torch.no_grad():
-            for t in range(len(val)-K):
+            for t in range(len(val) - K):
                 x = val[t]
                 for k in range(K):
-                    pred = model(x, edge_index, edge_features)
+                    delta = model(x, edge_index, edge_features)
+                    pred = x + delta
                     val_total += loss_fn(pred, val[t + k + 1]).item()
                     x = pred
         val_loss = val_total / ((len(val)-K) * K)
@@ -86,7 +87,6 @@ def train(device = 'cpu', resume=False):
             torch.save(model.state_dict(), 'model.pt')
             print(f"  saved new best val: {best_val:.6f}")
         scheduler.step(val_loss)
-    
 
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
