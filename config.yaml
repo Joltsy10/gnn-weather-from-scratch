@@ -3,8 +3,8 @@ graph:
 
 model:
   hidden_dim: 64
-  num_layers: 1
+  num_layers: 2
 
 training:
-  num_epochs: 30
+  num_epochs: 15
   lr: 0.001

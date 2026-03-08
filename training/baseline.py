@@ -1,24 +1,22 @@
 import torch
-import torch.nn as nn
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 node_features = torch.tensor(
-        np.load('data/node_features.npy'), dtype=torch.float32
-    ) # (T, N, 7)
+    np.load('data/node_features.npy'), dtype=torch.float32
+)
 
-node_features = node_features[:2688]
-T = node_features.shape[0]
+test = node_features[4032:]
+K = 4
 
-loss_fn = nn.MSELoss()
-total_loss = 0
+mae_per_step = np.zeros(K)
 
-for t in range(T-1):
-    loss = loss_fn(node_features[t], node_features[t+1])
+for t in range(len(test) - K):
+    for k in range(K):
+        mae_per_step[k] += torch.mean(torch.abs(test[t] - test[t + k + 1])).item()
 
-    total_loss += loss
+mae_per_step /= (len(test) - K)
 
-avg_loss = total_loss/(T - 1)
-print(avg_loss)
+for k in range(K):
+    print(f"T+{k+1} ({(k+1)*6}h): {mae_per_step[k]:.6f}")
+
+print(len(test))
