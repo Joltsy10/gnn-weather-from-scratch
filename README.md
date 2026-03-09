@@ -1,111 +1,143 @@
-# GNN Weather Forecasting from Scratch
+# GNN Weather Forecasting — India Regional
 
-A minimal graph neural network for short-range weather forecasting over India, built without neural-lam or any ML weather framework. The goal was to understand the core message passing mechanics before working on the full GSoC integration.
+Graph neural network for short-range weather forecasting over India, built from scratch using ERA5 reanalysis data. Encode-process-decode architecture with autoregressive multistep training.
 
-## Structure
+## Architecture
 
-```
-data/           ERA5 surface and pressure level data, processed graph tensors
-graph/          Graph construction from ERA5 grid
-model/          Message passing layer and full GNN
-training/       Training loop, persistence baseline and inference
-config.yaml     Hyperparameters
-```
+Encode-process-decode GNN with message passing layers.
+
+- **Encoder**: linear projection from node features to hidden dimension
+- **Processor**: N stacked message passing layers, each aggregating neighbor messages via scatter-add, concatenating with node features, and updating via MLP
+- **Decoder**: linear projection back to feature dimension
+- **Residual prediction**: model predicts the state delta (x_{t+1} - x_t) and adds it back to the input. Improves thermodynamic variable accuracy by focusing the model on small incremental changes rather than reconstructing the full atmospheric state.
+
+| Hyperparameter | Value |
+|---|---|
+| hidden_dim | 128 |
+| num_layers | 2 |
+| k neighbors | 16 |
+| edge features | distance + relative lat/lon |
 
 ## Data
 
-ERA5 reanalysis, India bounding box, 2019 to 2022. 6-hourly timesteps, 7 variables: u10, v10, sp, t850, t500, z850, z500. Flattened to 15,609 nodes (129 lat x 121 lon).
+ERA5 reanalysis downloaded via CDS API. India bounding box: 6-38N, 68-98E at 1 degree resolution, 6-hourly timesteps.
 
-Split chronologically: 2019/2020 for training, 2021 for validation, 2022 for test.
+**Variables (7):** u10, v10, sp, t850, t500, z850, z500
 
-Graph edges built with KDTree k-nearest neighbours. Each node connects to its k closest neighbours by Euclidean distance in Cartesian space. Edge features are delta-lat, delta-lon and distance.
+**Split:**
+- Train: 2019-2020 (2688 timesteps)
+- Val: 2021 (1344 timesteps)
+- Test: 2022 (1344 timesteps)
 
-## Model
+## Training
 
-Standard encode-process-decode GNN. Encoder projects the 7 input features to a 64-dimensional hidden space. Processor runs N rounds of message passing where each round aggregates neighbour messages via scatter-add and updates node representations with a residual connection. Decoder projects back to 7 features.
+- **Loss**: MSE over K=4 autoregressive rollout steps (24 hours)
+- **Optimizer**: Adam, lr=0.001
+- **Scheduler**: ReduceLROnPlateau, patience=3, factor=0.5. Reduces LR when val loss plateaus, allowing the model to settle into finer minima in later epochs.
+- **Gradient clipping**: max_norm=1.0. Stabilizes training through long rollouts by preventing exploding gradients.
+- **Epochs**: 30
+- **Best val loss**: 0.1218 (epoch 25)
 
-The model takes one timestep as input and predicts the next.
+Val loss plateaued around epoch 13-17, scheduler kicked in, and loss dropped from 0.136 to 0.121 by epoch 25.
 
 ## Results
 
-**Ablation study (2-year run, no val split):**
+### Per-variable MAE at T+1 (6h)
 
-Persistence baseline: **0.0934**
-
-| Config | MSE |
-|---|---|
-| 6 layers k=8 | 0.0772 |
-| 1 layer k=8 | 0.0750 |
-| 3 layers k=8 | 0.0749 |
-| 1 layer k=4 | 0.0757 |
-| 1 layer k=16 | 0.0739 |
-| 3 layers k=16 | 0.0742 |
-
-Wider connectivity consistently outperforms deeper stacking. Adding layers past 1 gives marginal improvement, likely because repeated local aggregation over a small regional domain starts to wash out spatial signal.
-
-**Final evaluation (4-year run, train/val/test split, 1 layer k=16):**
-
-| Split | Persistence | GNN |
+| Variable | MAE | Normalized MAE |
 |---|---|---|
-| Train | 0.1027 | 0.0789 |
-| Val | 0.1037 | 0.0950 |
-| Test | 0.1014 | 0.0945 |
+| u10 | 0.9887 m/s | 0.347 |
+| v10 | 0.9256 m/s | 0.374 |
+| sp | 426.96 Pa | 0.010 |
+| t850 | 1.3953 K | 0.012 |
+| t500 | 0.8269 K | 0.010 |
+| z850 | 193.28 m²/s² | 0.026 |
+| z500 | 317.31 m²/s² | 0.015 |
 
-Beats persistence on all splits. The smaller gap on val and test vs train is expected since the model was trained on 2019/2020 and evaluated on later years with different seasonal patterns.
+Thermodynamic variables (t850, t500, sp, z850, z500) achieve normalized MAE below 0.03. Wind components (u10, v10) are harder at ~0.35, consistent with the turbulent nature of near-surface winds.
 
-**Per-variable MAE on test set (normalized by std):**
+### Rollout MAE vs Lead Time
 
-| Variable | MAE | Normalized |
-|---|---|---|
-| u10 | 1.258 m/s | 0.442 |
-| v10 | 0.893 m/s | 0.361 |
-| sp | 1047 Pa | 0.025 |
-| t850 | 3.50 K | 0.031 |
-| t500 | 3.15 K | 0.039 |
-| z850 | 579.8 m²/s² | 0.079 |
-| z500 | 974.3 m²/s² | 0.047 |
+![Rollout MAE](plots/rollout_mae.png)
 
-Thermodynamic variables (sp, t, z) are predicted well with normalized errors below 0.08. Wind components (u10, v10) are roughly 5x harder, which is consistent with wind being more turbulent and directionally variable at short timescales.
+GNN beats persistence at 6h and 12h. At 18h and 24h the model underperforms persistence, partly due to the diurnal cycle: the atmosphere at T+24 closely resembles T+0 (same time of day), making persistence artificially strong at 24h.
 
-## Running
+## Visualizations
 
+### T850 Actual vs Predicted
+
+![T850 Prediction](plots/t850_pred_vs_actual.png)
+
+The model captures the large-scale temperature structure: warm peninsula, cooler north, Himalayan cold signature. Predicted fields are slightly smoother than actual, typical of GNNs that tend to underestimate fine-scale variability.
+
+### T850 Prediction Error
+
+![T850 Error](plots/t850_error.png)
+
+Largest errors are concentrated in the Himalayan and Tibetan Plateau region. The Himalayas act as an orographic barrier, blocking cold air from the north and creating a sharp temperature gradient along the mountain range. The model has no elevation features and cannot represent this, so it systematically overpredicts temperature in this region.
+
+### All Variables Actual vs Predicted
+
+![All Variables](plots/all_variables.png)
+
+## Error Analysis
+
+**Himalayan orographic bias**: The largest systematic error is in the Himalayan/Tibetan Plateau region where the model overpredicts temperature by 3-5K. The KDTree graph construction uses only geographic distance with no terrain information. The model cannot learn that an 8000m mountain range blocks cold air advection from the north. Adding surface geopotential (orography) as a node feature would directly address this.
+
+**Diurnal cycle at T+24**: The non-monotonic persistence baseline reflects the diurnal cycle. The atmosphere at the same time tomorrow looks very similar to today, making 24h persistence artificially competitive.
+
+## Limitations and Future Work
+
+- **Orographic features**: adding ERA5 surface geopotential as a node feature would improve Himalayan region accuracy
+- **More pressure levels**: currently only 850hPa and 500hPa; adding 250hPa and 1000hPa would improve vertical representation
+- **Larger graph connectivity**: k=16 neighbors at 1 degree resolution limits the effective receptive field; larger k or multi-scale graph would help capture longer-range teleconnections
+- **Global scale**: this architecture directly motivated the GSoC 2026 Neural-LAM project, extending to global icosahedral graphs with proper spherical geometry
+
+## How to Run
+
+### Install dependencies
 ```bash
-# Build graph from ERA5 data
-python graph/build_graph.py
+pip install torch numpy scipy pyyaml cdsapi cartopy matplotlib
+```
 
-# Train
+### Download ERA5 data
+```bash
+python data/download_era5.py
+```
+Requires a CDS API key at `~/.cdsapirc`.
+
+### Build graph
+```bash
+python data/build_graph.py
+```
+
+### Train
+```bash
 python training/train.py
+```
 
-# Persistence baseline
-python training/baseline.py
-
-# Inference and test evaluation
+### Inference
+```bash
 python training/inference.py
 ```
 
-## Configuration
+### Visualize
+Open `visualize.ipynb` in the project root.
 
-All hyperparameters live in config.yaml:
-
-```yaml
-graph:
-  k: 16
-
-model:
-  hidden_dim: 64
-  num_layers: 1
-
-training:
-  num_epochs: 30
-  lr: 0.001
-```
-
-## Dependencies
+## Project Structure
 
 ```
-torch
-numpy
-scipy
-netCDF4
-pyyaml
+gnn-weather-from-scratch/
+├── data/
+│   ├── download_era5.py
+│   └── build_graph.py
+├── model/
+│   ├── gnn.py
+│   └── message_passing.py
+├── training/
+│   ├── train.py
+│   └── inference.py
+├── plots/
+├── visualize.ipynb
+└── config.yaml
 ```
