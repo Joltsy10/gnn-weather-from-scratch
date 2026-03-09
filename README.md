@@ -1,4 +1,4 @@
-# GNN Weather Forecasting — India Regional
+# GNN Weather Forecasting  India Regional
 
 Graph neural network for short-range weather forecasting over India, built from scratch using ERA5 reanalysis data. Encode-process-decode architecture with autoregressive multistep training.
 
