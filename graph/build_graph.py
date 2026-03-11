@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../mesh')))
+sys.path.append(r'C:\Users\MSI 1\Documents\neural-lam-demo\mesh\neural-lam-global-mesh')
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -19,38 +19,48 @@ def load_data(data_dir, years=['2019', '2020', '2021', '2022']):
     Load ERA5 files and flatten from (time, lat, lon) to (time, N, 7)
     Works for both LAM and global
     """
+    node_features_list = []
+    lat_flat = None
+    lon_flat = None
 
-    surface_list = []
-    pressure_list = []
     for year in years:
-        surface_list.append(xr.open_dataset(f'{data_dir}/era5_surface_{year}.nc'))
-        pressure_list.append(xr.open_dataset(f'{data_dir}/era5_pressure_{year}.nc'))
+        surface = xr.open_dataset(f'{data_dir}/era5_surface_{year}.nc')
+        if os.path.exists(f'{data_dir}/era5_t_{year}.nc'):
+            t_ds = xr.open_dataset(f'{data_dir}/era5_t_{year}.nc')
+            z_ds = xr.open_dataset(f'{data_dir}/era5_z_{year}.nc')
+        else:
+            pressure = xr.open_dataset(f'{data_dir}/era5_pressure_{year}.nc')
+            t_ds = pressure
+            z_ds = pressure
 
-    surface = xr.concat(surface_list, dim='valid_time')
-    pressure = xr.concat(pressure_list, dim='valid_time')
+        T = len(surface.valid_time)
 
-    T = len(surface.valid_time)  # 2688
+        u10  = surface['u10'].values.reshape(T, -1)
+        v10  = surface['v10'].values.reshape(T, -1)
+        sp   = surface['sp'].values.reshape(T, -1)
+        t850 = t_ds['t'].values[:, 0, :, :].reshape(T, -1)
+        t500 = t_ds['t'].values[:, 1, :, :].reshape(T, -1)
+        z850 = z_ds['z'].values[:, 0, :, :].reshape(T, -1)
+        z500 = z_ds['z'].values[:, 1, :, :].reshape(T, -1)
 
-    u10 = surface['u10'].values.reshape(T, -1)   # (T, N)
-    v10 = surface['v10'].values.reshape(T, -1)   # (T, N)
-    sp  = surface['sp'].values.reshape(T, -1)    # (T, N)
+        node_features_list.append(
+            np.stack([u10, v10, sp, t850, t500, z850, z500], axis=-1)
+        )
 
-    t_850 = pressure['t'].values[:, 0, :, :].reshape(T, -1)  # (T, N)
-    t_500 = pressure['t'].values[:, 1, :, :].reshape(T, -1)  # (T, N)
-    z_850 = pressure['z'].values[:, 0, :, :].reshape(T, -1)  # (T, N)
-    z_500 = pressure['z'].values[:, 1, :, :].reshape(T, -1)  # (T, N)
+        if lat_flat is None:
+            lat_grid, lon_grid = np.meshgrid(
+                surface.latitude.values,
+                surface.longitude.values,
+                indexing='ij'
+            )
+            lat_flat = lat_grid.reshape(-1)
+            lon_flat = lon_grid.reshape(-1)
 
-    node_features = np.stack([u10, v10, sp, t_850, t_500, z_850, z_500], axis=-1)
-    # shape: (T, N, 7)
+        surface.close()
+        t_ds.close()
+        z_ds.close()
 
-    lat_grid, lon_grid = np.meshgrid(
-        surface.latitude.values,
-        surface.longitude.values,
-        indexing='ij'
-    )
-    lat_flat = lat_grid.reshape(-1)  # (N,)
-    lon_flat = lon_grid.reshape(-1)  # (N,)
-
+    node_features = np.concatenate(node_features_list, axis=0)
     return node_features, lat_flat, lon_flat
 
 def normalize(node_features):
