@@ -1,4 +1,4 @@
-domain: lam  # or global
+domain: global  # global or lam
 
 graph:
   k: 16                    # only used for lam
