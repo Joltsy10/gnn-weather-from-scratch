@@ -1,9 +1,24 @@
+domain: lam  # or global
+
 graph:
-  k: 16
+  k: 16                    # only used for lam
+  mesh_level: 3            # only used for global
+  g2m_angle_deg: 7.5       # only used for global
 
 model:
   hidden_dim: 128
   num_layers: 2
+  node_dim: 7
+
+data:
+  lam:
+    lat_min: 6
+    lat_max: 38
+    lon_min: 68
+    lon_max: 98
+    resolution: 1.0
+  global:
+    resolution: 1.0
 
 training:
   num_epochs: 30

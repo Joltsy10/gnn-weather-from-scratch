@@ -1,33 +1,34 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../mesh')))
+
 import numpy as np
 from scipy.spatial import cKDTree
 import xarray as xr
 import yaml
+import torch
+from bridge import build_graph as build_icosahedral_graph
+
 
 def load_config(path='config.yaml'):
     with open(path) as f:
         return yaml.safe_load(f)
 
-def load_data(years=['2019', '2020', '2021', '2022']):
+def load_data(data_dir, years=['2019', '2020', '2021', '2022']):
     """
     Load ERA5 files and flatten from (time, lat, lon) to (time, N, 7)
-    where N = lat * lon = 15609 grid nodes.
+    Works for both LAM and global
     """
 
     surface_list = []
     pressure_list = []
     for year in years:
-        surface_list.append(xr.open_dataset(f'data/era5_surface_{year}.nc'))
-        pressure_list.append(xr.open_dataset(f'data/era5_pressure_{year}.nc'))
+        surface_list.append(xr.open_dataset(f'{data_dir}/era5_surface_{year}.nc'))
+        pressure_list.append(xr.open_dataset(f'{data_dir}/era5_pressure_{year}.nc'))
 
     surface = xr.concat(surface_list, dim='valid_time')
     pressure = xr.concat(pressure_list, dim='valid_time')
 
-    # Number of grid points
-    n_lat = len(surface.latitude)
-    n_lon = len(surface.longitude)
-    N = n_lat * n_lon  # 15609
-
-    # Time steps
     T = len(surface.valid_time)  # 2688
 
     u10 = surface['u10'].values.reshape(T, -1)   # (T, N)
@@ -57,7 +58,7 @@ def normalize(node_features):
     std  = node_features.std(axis=(0, 1), keepdims=True)   # (1, 1, 7)
     return (node_features - mean) / std, mean.squeeze(), std.squeeze()
 
-def build_edges(lat_flat, lon_flat, k=16):
+def build_lam_edges(lat_flat, lon_flat, k=16):
     """
     Connect each node to its k nearest neighbours.
     Returns edge_index of shape (2, E) and edge_features of shape (E, 3)
@@ -85,36 +86,64 @@ def build_edges(lat_flat, lon_flat, k=16):
 
     return edge_index, edge_features
 
-def build_and_save(output_dir):
-    print("Loading data...")
+def build_and_save(config_path='config.yaml'):
+    config = load_config(config_path)
+    domain = config['domain']
 
-    config = load_config()
-    node_features, lat_flat, lon_flat = load_data()
+    if domain == 'lam':
+        data_dir = 'data/lam'
+        graph_dir = 'data/lam'
+    else:
+        data_dir = 'data/global'
+        graph_dir = 'data/global'
+
+    print(f"Domain: {domain}")
+    print("Loading data...")
+    node_features, lat_flat, lon_flat = load_data(data_dir)
 
     print("Normalizing...")
     node_features, mean, std = normalize(node_features)
-    np.save(f'{output_dir}/mean.npy', mean)
-    np.save(f'{output_dir}/std.npy', std)
+    torch.save(torch.tensor(mean, dtype=torch.float32), f'{graph_dir}/mean.pt')
+    torch.save(torch.tensor(std, dtype=torch.float32), f'{graph_dir}/std.pt')
     
-    print("Building edges...")
-    edge_index, edge_features = build_edges(lat_flat, lon_flat, k=config['graph']['k'])
-    
-    print(f"Nodes: {len(lat_flat)}")
-    print(f"Edges: {edge_index.shape[1]}")
-    print(f"Node features shape: {node_features.shape}")
-    print(f"Edge index shape: {edge_index.shape}")
-    print(f"Edge features shape: {edge_features.shape}")
-    
-    np.save(f'{output_dir}/node_features.npy', node_features)
-    np.save(f'{output_dir}/edge_index.npy', edge_index)
-    np.save(f'{output_dir}/edge_features.npy', edge_features)
-    np.save(f'{output_dir}/lat.npy', lat_flat)
-    np.save(f'{output_dir}/lon.npy', lon_flat)
-    
-    print("Saved.")
+    print("Building graph...")
+    if domain == 'lam':
+        edge_index, edge_features = build_lam_edges(
+            lat_flat, lon_flat, k=config['graph']['k']
+        )
+        torch.save(torch.tensor(node_features, dtype=torch.float32),
+                   f'{graph_dir}/node_features.pt')
+        torch.save(torch.tensor(edge_index,    dtype=torch.long),
+                   f'{graph_dir}/edge_index.pt')
+        torch.save(torch.tensor(edge_features, dtype=torch.float32),
+                   f'{graph_dir}/edge_features.pt')
+        torch.save(torch.tensor(lat_flat,      dtype=torch.float32),
+                   f'{graph_dir}/lat.pt')
+        torch.save(torch.tensor(lon_flat,      dtype=torch.float32),
+                   f'{graph_dir}/lon.pt')
+        
+        print(f"Nodes: {len(lat_flat)}")
+        print(f"Edges: {edge_index.shape[1]}")
+
+    else:
+        torch.save(torch.tensor(node_features, dtype=torch.float32),
+                   f'{graph_dir}/node_features.pt')
+        torch.save(torch.tensor(lat_flat,      dtype=torch.float32),
+                   f'{graph_dir}/lat.pt')
+        torch.save(torch.tensor(lon_flat,      dtype=torch.float32),
+                   f'{graph_dir}/lon.pt')
+
+        build_icosahedral_graph(
+            mesh_level    = config['graph']['mesh_level'],
+            grid_lat      = lat_flat,
+            grid_lon      = lon_flat,
+            output_dir    = graph_dir,
+            g2m_angle_deg = config['graph']['g2m_angle_deg']
+        )
+
+    print(f"Node features shape: {node_features.shape}")   
+    print(f"Saved to {graph_dir}")
 
 if __name__ == "__main__":
-    build_and_save(
-        output_dir='data'
-    )
+    build_and_save()
 
