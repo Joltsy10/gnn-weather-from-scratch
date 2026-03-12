@@ -39,7 +39,7 @@ class GNN(nn.Module):
 
             # Processor
             for layer in self.processor:
-                 x = layer(x, edge_index, edge_features) # (N, hidden_dim)
+                 x = layer(x, x, edge_index, edge_features) # (N, hidden_dim)
 
             # Decoder
             out = self.decoder(x) # (N, node_dim)
