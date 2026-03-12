@@ -17,27 +17,40 @@ class MessagePassingLayer(nn.Module):
             nn.Linear(hidden_dim, node_dim)
         )
 
-    def forward(self, node_features, edge_index, edge_features):
-        src = edge_index[0]  # (E,)
-        dst = edge_index[1]  # (E,)
+    def forward(self, src_features, dst_features, edge_index, 
+                edge_features, n_dst_nodes=None):
+        """
+        Args:
+            src_features: (N_src, node_dim) source node features
+            dst_features: (N_dst, node_dim) destination node features
+            edge_index:   (2, E) row 0 = src indices, row 1 = dst indices
+            edge_features: (E, edge_dim)
+            n_dst_nodes:  int, optional override for dst node count
+        """
+        if n_dst_nodes is None:
+            n_dst_nodes = dst_features.shape[0]
 
-        src_features = node_features[src]  # (E, node_dim)
-        msg_input = torch.cat([src_features, edge_features], dim=-1)  # (E, node_dim+edge_dim)
+        src = edge_index[0]
+        dst = edge_index[1]
+
+        src_node_features = src_features[src]  # (E, node_dim)
+        msg_input = torch.cat([src_node_features, edge_features], dim=-1)
         messages = self.message_mlp(msg_input)  # (E, hidden_dim)
 
-        aggregated = torch.zeros(node_features.shape[0], messages.shape[1], 
-                                 device=node_features.device)  # (N, hidden_dim)
-        aggregated.scatter_add_(0, dst.unsqueeze(-1).expand_as(messages), messages)
+        aggregated = torch.zeros(n_dst_nodes, messages.shape[1],
+                                 device=src_features.device)
+        aggregated.scatter_add_(0, dst.unsqueeze(-1).expand_as(messages), 
+                                messages)
 
-        update_input = torch.cat([node_features, aggregated], dim=-1)  # (N, node_dim+hidden_dim)
-        new_node_features = self.update_mlp(update_input)  # (N, node_dim)
+        update_input = torch.cat([dst_features, aggregated], dim=-1)
+        new_dst_features = self.update_mlp(update_input)  # (N_dst, node_dim)
 
-        return new_node_features
+        return new_dst_features
     
 if __name__ == "__main__":
     layer = MessagePassingLayer(node_dim=7, edge_dim=3, hidden_dim=64)
     nodes = torch.randn(15609, 7)
     edge_index = torch.randint(0, 15609, (2, 124872))
     edges = torch.randn(124872, 3)
-    out = layer(nodes, edge_index, edges)
+    out = layer(nodes, nodes, edge_index, edges)
     print(out.shape)  # should be (15609, 7)
