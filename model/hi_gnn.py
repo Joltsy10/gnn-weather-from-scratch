@@ -75,7 +75,7 @@ class HiGNN(nn.Module):
 
         # G2M: grid to finest mesh level
         finest_mesh_rep = self.g2m_gnn(
-            grid_rep, graph['g2m_edge_index'], graph['g2m_features'],
+            grid_rep, mesh_rep[-1], graph['g2m_edge_index'], graph['g2m_features'],
             n_dst_nodes=mesh_rep[-1].shape[0]
         )
 
@@ -84,38 +84,38 @@ class HiGNN(nn.Module):
         # Processor: up sweep (finest to coarsest)
         for i in reversed(range(len(self.up_gnns))):
             mesh_rep[i+1] = self.same_gnns[i+1](
-                mesh_rep[i], graph['m2m_edge_index'][i+1],
-                graph['m2m_features'][i+1]
-            )
+            mesh_rep[i+1], mesh_rep[i+1], graph['m2m_edge_index'][i+1],
+            graph['m2m_features'][i+1]
+            )   
 
             mesh_rep[i] = self.up_gnns[i](
-                mesh_rep[i], graph['m2m_edge_index'][i],
-                graph['m2m_features'][i],
+                mesh_rep[i+1], mesh_rep[i], graph['up_edge_index'][i],
+                graph['up_features'][i],
                 n_dst_nodes=mesh_rep[i].shape[0]
-            )
+            )   
 
         # Same-level pass on coarsest level
         mesh_rep[0] = self.same_gnns[0](
-            mesh_rep[0], graph['m2m_edge_index'][0],
+            mesh_rep[0], mesh_rep[0], graph['m2m_edge_index'][0],
             graph['m2m_features'][0]
         )
 
         # Processor: down sweep (coarsest to finest)
         for i in range(len(self.up_gnns)):
-            mesh_rep[i] = self.down_gnns[i](
-                mesh_rep[i+1], graph['m2m_edge_index'][i],
-                graph['m2m_features'][i],
+            mesh_rep[i+1] = self.down_gnns[i](
+                mesh_rep[i], mesh_rep[i+1], graph['down_edge_index'][i],
+                graph['down_features'][i],
                 n_dst_nodes=mesh_rep[i+1].shape[0]
             )
 
             mesh_rep[i+1] = self.same_gnns[i+1](
-                mesh_rep[i], graph['m2m_edge_index'][i+1],
+                mesh_rep[i+1], mesh_rep[i+1], graph['m2m_edge_index'][i+1],
                 graph['m2m_features'][i+1]
             )
 
         # M2G: finest mesh to grid
         grid_rep_out = self.m2g_gnn(
-            mesh_rep[-1], graph['m2g_edge_index'], graph['m2g_features'],
+            mesh_rep[-1], grid_rep, graph['m2g_edge_index'], graph['m2g_features'],
             n_dst_nodes=grid_rep.shape[0]
         ) # (N_grid, hidden_dim)
 
