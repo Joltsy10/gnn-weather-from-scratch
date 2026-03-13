@@ -19,23 +19,21 @@ def load_data(data_dir):
     return node_features, edge_index, edge_features
 
 def load_global_graph(graph_dir, device):
-    num_levels = torch.load(f'{graph_dir}/m2m_edge_index.pt', 
-                            map_location=device)
-    # m2m_edge_index.pt is a list, one per level
     m2m_edge_index = torch.load(f'{graph_dir}/m2m_edge_index.pt', map_location=device)
     num_levels = len(m2m_edge_index)
 
     graph = {
-        'g2m_edge_index': torch.load(f'{graph_dir}/g2m_edge_index.pt', map_location=device),
-        'g2m_features':   torch.load(f'{graph_dir}/g2m_features.pt',   map_location=device),
-        'm2g_edge_index': torch.load(f'{graph_dir}/m2g_edge_index.pt', map_location=device),
-        'm2g_features':   torch.load(f'{graph_dir}/m2g_features.pt',   map_location=device),
-        'm2m_features':   torch.load(f'{graph_dir}/m2m_features.pt',   map_location=device),
-        'up_edge_index':  torch.load(f'{graph_dir}/mesh_up_edge_index.pt',   map_location=device),
-        'up_features':    torch.load(f'{graph_dir}/mesh_up_features.pt',     map_location=device),
-        'down_edge_index':torch.load(f'{graph_dir}/mesh_down_edge_index.pt', map_location=device),
-        'down_features':  torch.load(f'{graph_dir}/mesh_down_features.pt',   map_location=device),
-        'mesh_features':  torch.load(f'{graph_dir}/mesh_features.pt',        map_location=device),
+        'g2m_edge_index':  torch.load(f'{graph_dir}/g2m_edge_index.pt',       map_location=device),
+        'g2m_features':    torch.load(f'{graph_dir}/g2m_features.pt',          map_location=device),
+        'm2g_edge_index':  torch.load(f'{graph_dir}/m2g_edge_index.pt',        map_location=device),
+        'm2g_features':    torch.load(f'{graph_dir}/m2g_features.pt',          map_location=device),
+        'm2m_edge_index':  m2m_edge_index,
+        'm2m_features':    torch.load(f'{graph_dir}/m2m_features.pt',          map_location=device),
+        'up_edge_index':   torch.load(f'{graph_dir}/mesh_up_edge_index.pt',    map_location=device),
+        'up_features':     torch.load(f'{graph_dir}/mesh_up_features.pt',      map_location=device),
+        'down_edge_index': torch.load(f'{graph_dir}/mesh_down_edge_index.pt',  map_location=device),
+        'down_features':   torch.load(f'{graph_dir}/mesh_down_features.pt',    map_location=device),
+        'mesh_features':   torch.load(f'{graph_dir}/mesh_features.pt',         map_location=device),
     }
     return graph, num_levels
 
@@ -57,6 +55,7 @@ def train(device='cpu', resume=False):
         node_features = node_features.to(device)
         graph, num_levels = load_global_graph(data_dir, device)
         edge_dim = graph['g2m_features'].shape[1]
+        print(graph.keys())
         model = HiGNN(node_dim=node_dim, edge_dim=edge_dim, 
                     num_levels=num_levels).to(device)
 
@@ -71,14 +70,14 @@ def train(device='cpu', resume=False):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
     loss_fn   = nn.MSELoss()
     best_val  = float('inf')
-    K = 4
+    K = 1
 
     for epoch in range(config['training']['num_epochs']):
         model.train()
         total_loss = 0.0
 
         for t in range(train_data.shape[0] - K):
-            x    = train_data[t]
+            x = train_data[t]
             loss = 0
             for k in range(K):
                 if domain == 'lam':
