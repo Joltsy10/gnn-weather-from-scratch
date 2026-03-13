@@ -2,7 +2,7 @@ domain: global  # global or lam
 
 graph:
   k: 16                    # only used for lam
-  mesh_level: 3            # only used for global
+  mesh_level: 2           # only used for global
   g2m_angle_deg: 7.5       # only used for global
 
 model:
