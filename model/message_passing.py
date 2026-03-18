@@ -38,7 +38,8 @@ class MessagePassingLayer(nn.Module):
         messages = self.message_mlp(msg_input)  # (E, hidden_dim)
 
         aggregated = torch.zeros(n_dst_nodes, messages.shape[1],
-                                 device=src_features.device)
+                                 device=src_features.device,
+                                 dtype=src_features.dtype)
         aggregated.scatter_add_(0, dst.unsqueeze(-1).expand_as(messages), 
                                 messages)
 

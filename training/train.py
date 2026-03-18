@@ -55,7 +55,6 @@ def train(device='cpu', resume=False):
         node_features = node_features.to(device)
         graph, num_levels = load_global_graph(data_dir, device)
         edge_dim = graph['g2m_features'].shape[1]
-        print(graph.keys())
         model = HiGNN(node_dim=node_dim, edge_dim=edge_dim, 
                     num_levels=num_levels).to(device)
 
