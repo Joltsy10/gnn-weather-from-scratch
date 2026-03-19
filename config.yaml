@@ -6,7 +6,7 @@ graph:
   g2m_angle_deg: 7.5       # only used for global
 
 model:
-  hidden_dim: 128
+  hidden_dim: 64
   num_layers: 2
   node_dim: 7
 

@@ -149,7 +149,18 @@ Run `visualize_globe.ipynb` for the interactive version.
 
 ### Notes
 
-Refinement level 2 is a coarse mesh designed for rapid iteration — the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity. Refinement level 3 (642 finest mesh nodes) is the next target for improved spatial resolution.
+Refinement level 2 is a coarse mesh designed for rapid iteration; the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity.
+
+### Mesh Level 3 (Early Stopping)
+
+Training was also run at refinement level 3 (642 finest mesh nodes, 4 levels, 177,160 G2M edges) with hidden_dim reduced to 64 to fit within 8GB VRAM.
+
+| Epoch | Train Loss | Val Loss |
+|---|---|---|
+| 1 | 0.112517 | 0.102669 |
+| 2 | 0.098427 | 0.095169 |
+
+Training was stopped after 2 epochs due to compute time (~7 hours per epoch on a laptop 4070). The val loss at epoch 2 (0.095169) already matches mesh level 2's best result (0.095912) despite being only 2 epochs in, confirming that finer mesh resolution improves convergence rate. Full convergence at mesh level 3 requires cluster hardware. Training can be resumed from the saved checkpoint with `resume=True` in train.py.
 
 ---
 
