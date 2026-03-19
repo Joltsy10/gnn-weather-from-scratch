@@ -89,7 +89,7 @@ Thermodynamic variables achieve normalized MAE below 0.03. Wind components are h
 
 ![Rollout MAE](plots/rollout_mae.png)
 
-GNN beats persistence at 6h and 12h. At 24h the model underperforms persistence due to the diurnal cycle — the atmosphere at T+24 closely resembles T+0, making persistence artificially strong.
+GNN beats persistence at 6h and 12h. At 24h the model underperforms persistence due to the diurnal cycle, the atmosphere at T+24 closely resembles T+0, making persistence artificially strong.
 
 ### T850 Actual vs Predicted
 
@@ -135,13 +135,13 @@ Best val loss: 0.095912 (epoch 28).
 | z850 | 130.11 m²/s² | 149.11 m²/s² | 13% |
 | z500 | 158.58 m²/s² | 180.90 m²/s² | 12% |
 
-Model beats persistence on every variable. Wind components show the largest improvement (17–23%) — persistence is particularly poor for wind since it cannot capture advection. Thermodynamic variables show smaller gains as they change more slowly.
+Model beats persistence on every variable. Wind components show the largest improvement (17–23%); persistence is particularly poor for wind since it cannot capture advection. Thermodynamic variables show smaller gains as they change more slowly.
 
 Rollout normalized MAE at T+1: **0.1257** vs persistence **0.1448**.
 
 ### Global Error Visualization
 
-Interactive 3D globe with elevation-based error heatmap — nodes displaced outward proportional to prediction error, colored by magnitude. Higher spikes indicate regions of larger forecast error.
+Interactive 3D globe with elevation-based error heatmap with the nodes displaced outward proportional to prediction error, colored by magnitude. Higher spikes indicate regions of larger forecast error.
 
 ![Global Error Globe](plots/globe_error.png)
 
@@ -149,7 +149,7 @@ Run `visualize_globe.ipynb` for the interactive version.
 
 ### Notes
 
-Refinement level 2 is a coarse mesh designed for rapid iteration — the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity. Refinement level 3 (642 finest mesh nodes) is the next target for improved spatial resolution.
+Refinement level 2 is a coarse mesh designed for rapid iteration, the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity. Refinement level 3 (642 finest mesh nodes) is the next target for improved spatial resolution.
 
 ---
 
