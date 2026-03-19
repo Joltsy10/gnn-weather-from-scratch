@@ -1,3 +1,2 @@
-import cdsapi
-c = cdsapi.Client()
-print("connected")
+import os
+print(os.listdir('data/global'))
