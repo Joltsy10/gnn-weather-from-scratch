@@ -65,7 +65,6 @@ Pressure level downloads split by variable (temperature and geopotential separat
 - **Optimizer**: Adam, lr=0.001
 - **Scheduler**: ReduceLROnPlateau, patience=3, factor=0.5
 - **Gradient clipping**: max_norm=1.0
-- **Precision**: BFloat16 for global training
 - **Epochs**: 30
 
 ---
@@ -106,6 +105,38 @@ Largest errors concentrated in the Himalayan and Tibetan Plateau region. The mod
 
 ---
 
+## Global Results
+
+Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical icosahedral mesh at refinement level 2 (162 finest mesh nodes, 3 levels), 30 epochs, K=1 rollout.
+
+### Training Curve
+
+| Epoch | Train Loss | Val Loss |
+|---|---|---|
+| 1 | 0.125068 | 0.118681 |
+| 5 | 0.102108 | 0.102620 |
+| 10 | 0.097316 | 0.099679 |
+| 15 | 0.095172 | 0.099290 |
+| 20 | 0.093765 | 0.099249 |
+| 25 | 0.092749 | 0.097507 |
+| 30 | 0.092223 | 0.095992 |
+
+Best val loss: 0.095912 (epoch 28). Loss consistently decreasing across all 30 epochs with no instability. Scheduler reduces LR when val loss plateaus, allowing the model to settle into finer minima in later epochs.
+
+### Global Error Visualization
+
+Interactive 3D globe with elevation-based error heatmap — nodes displaced outward proportional to prediction error, colored by magnitude. Higher spikes indicate regions of larger forecast error.
+
+![Global Error Globe](plots/globe_error.png)
+
+Run `visualize_globe.ipynb` for the interactive version.
+
+### Notes
+
+Refinement level 2 is a coarse mesh designed for rapid iteration — the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity. Refinement level 3 (642 finest mesh nodes) is the next target for improved spatial resolution.
+
+---
+
 ## Switching Domains
 
 Set `domain: lam` or `domain: global` in `config.yaml`. Everything downstream — data loading, graph construction, model selection — branches automatically.
@@ -130,7 +161,7 @@ model:
 
 ### Install dependencies
 ```bash
-pip install torch numpy scipy pyyaml cdsapi xarray matplotlib
+pip install torch numpy scipy pyyaml cdsapi xarray matplotlib plotly
 ```
 
 ### Download ERA5 data
@@ -155,9 +186,14 @@ python training/train.py
 python training/inference.py
 ```
 
-### Visualize
+### Visualize (2D)
 ```bash
 jupyter notebook visualize.ipynb
+```
+
+### Visualize (3D Globe)
+```bash
+jupyter notebook visualize_globe.ipynb
 ```
 
 ---
@@ -180,7 +216,8 @@ gnn-weather-from-scratch/
 │   ├── train.py               — Domain-aware training loop
 │   └── inference.py           — Rollout and evaluation
 ├── plots/
-├── visualize.ipynb
+├── visualize.ipynb            — 2D cartopy plots (LAM)
+├── visualize_globe.ipynb      — Interactive 3D globe (Global)
 └── config.yaml
 ```
 
