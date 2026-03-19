@@ -121,7 +121,23 @@ Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical 
 | 25 | 0.092749 | 0.097507 |
 | 30 | 0.092223 | 0.095992 |
 
-Best val loss: 0.095912 (epoch 28). Loss consistently decreasing across all 30 epochs with no instability. Scheduler reduces LR when val loss plateaus, allowing the model to settle into finer minima in later epochs.
+Best val loss: 0.095912 (epoch 28).
+
+### Per-variable MAE at T+1 (6h) — Model vs Persistence
+
+| Variable | Model MAE | Persistence MAE | Improvement |
+|---|---|---|---|
+| u10 | 1.2345 m/s | 1.4905 m/s | 17% |
+| v10 | 1.2529 m/s | 1.6235 m/s | 23% |
+| sp | 176.05 Pa | 190.06 Pa | 7% |
+| t850 | 0.9919 K | 1.1271 K | 12% |
+| t500 | 0.8773 K | 0.9422 K | 7% |
+| z850 | 130.11 m²/s² | 149.11 m²/s² | 13% |
+| z500 | 158.58 m²/s² | 180.90 m²/s² | 12% |
+
+Model beats persistence on every variable. Wind components show the largest improvement (17–23%) — persistence is particularly poor for wind since it cannot capture advection. Thermodynamic variables show smaller gains as they change more slowly.
+
+Rollout normalized MAE at T+1: **0.1257** vs persistence **0.1448**.
 
 ### Global Error Visualization
 
@@ -186,6 +202,11 @@ python training/train.py
 python training/inference.py
 ```
 
+### Persistence baseline
+```bash
+python training/baseline.py
+```
+
 ### Visualize (2D)
 ```bash
 jupyter notebook visualize.ipynb
@@ -214,7 +235,8 @@ gnn-weather-from-scratch/
 │   └── message_passing.py     — Shared bipartite-aware MessagePassingLayer
 ├── training/
 │   ├── train.py               — Domain-aware training loop
-│   └── inference.py           — Rollout and evaluation
+│   ├── inference.py           — Rollout and evaluation (LAM and global)
+│   └── baseline.py            — Persistence baseline (LAM and global)
 ├── plots/
 ├── visualize.ipynb            — 2D cartopy plots (LAM)
 ├── visualize_globe.ipynb      — Interactive 3D globe (Global)
