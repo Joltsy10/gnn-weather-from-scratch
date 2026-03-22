@@ -61,7 +61,7 @@ def train(device='cpu', resume=False):
     train_data = node_features[:2688].to(device)
     val_data   = node_features[2688:4032].to(device)
 
-    if resume and os.path.exists(f'{data_dir}/model.pt'):
+    if resume and os.path.exists(f'{data_dir}/tmodel.pt'):
         model.load_state_dict(torch.load(f'{data_dir}/model.pt', map_location=device))
         print("Resumed from checkpoint")
 
@@ -121,4 +121,4 @@ def train(device='cpu', resume=False):
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
-    train(device=device, resume=False)
+    train(device=device, resume=True)
