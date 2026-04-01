@@ -11,6 +11,8 @@ model:
   node_dim: 7
 
 data:
+  train_end: 11688   
+  val_end: 13149     
   lam:
     lat_min: 6
     lat_max: 38
@@ -21,5 +23,7 @@ data:
     resolution: 1.0
 
 training:
+  accum_steps: 16
+  gcs_checkpoint: gs://era5-global-mesh-rayyan/checkpoints/checkpoint_latest.pt
   num_epochs: 30
   lr: 0.001
