@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.append(r'C:\Users\MSI 1\Documents\neural-lam-demo\mesh\neural-lam-global-mesh')
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'mesh', 'neural-lam-global-mesh'))
 
 import numpy as np
 from scipy.spatial import cKDTree
