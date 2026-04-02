@@ -27,18 +27,17 @@ def load_year(data_dir, year):
     pressure = xr.open_dataset(f'{data_dir}/era5_pressure_{year}.nc')
 
     T = len(surface.valid_time)
+    N = surface['u10'].shape[1] * surface['u10'].shape[2]
 
-    u10  = surface['u10'].values.reshape(T, -1)
-    v10  = surface['v10'].values.reshape(T, -1)
-    sp   = surface['sp'].values.reshape(T, -1)
-    t850 = pressure['t'].values[:, 0, :, :].reshape(T, -1)
-    t500 = pressure['t'].values[:, 1, :, :].reshape(T, -1)
-    z850 = pressure['z'].values[:, 0, :, :].reshape(T, -1)
-    z500 = pressure['z'].values[:, 1, :, :].reshape(T, -1)
+    features = np.empty((T, N, 7), dtype=np.float32)
+    features[:, :, 0] = surface['u10'].values.reshape(T, -1)
+    features[:, :, 1] = surface['v10'].values.reshape(T, -1)
+    features[:, :, 2] = surface['sp'].values.reshape(T, -1)
+    features[:, :, 3] = pressure['t'].values[:, 0, :, :].reshape(T, -1)
+    features[:, :, 4] = pressure['t'].values[:, 1, :, :].reshape(T, -1)
+    features[:, :, 5] = pressure['z'].values[:, 0, :, :].reshape(T, -1)
+    features[:, :, 6] = pressure['z'].values[:, 1, :, :].reshape(T, -1)
 
-    features = np.stack([u10, v10, sp, t850, t500, z850, z500], axis=-1)
-
-    lat_flat, lon_flat = None, None
     lat_grid, lon_grid = np.meshgrid(
         surface.latitude.values,
         surface.longitude.values,
@@ -51,7 +50,6 @@ def load_year(data_dir, year):
     pressure.close()
 
     return features, lat_flat, lon_flat
-
 def compute_mean_std(data_dir, years):
     total_n = 0
     combined_mean = np.zeros(7, dtype=np.float64)
