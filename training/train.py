@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import yaml
 import sys
 import os
@@ -76,7 +77,7 @@ def train(device='cpu', resume=False):
         edge_dim      = edge_features.shape[1]
         model         = GNN(node_dim=node_dim, edge_dim=edge_dim).to(device)
     else:
-        node_features      = torch.load(f'{data_dir}/node_features.pt')
+        node_features      = node_features = torch.from_numpy(np.load(f'{data_dir}/node_features.npy', mmap_mode='r').copy())
         graph, num_levels  = load_global_graph(data_dir, device)
         edge_dim           = graph['g2m_features'].shape[1]
         model              = HiGNN(node_dim=node_dim, edge_dim=edge_dim,
