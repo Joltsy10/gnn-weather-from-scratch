@@ -83,7 +83,7 @@ def train(device='cpu', resume=False):
         model              = HiGNN(node_dim=node_dim, edge_dim=edge_dim,
                                    num_levels=num_levels).to(device)
 
-    node_features = node_features.to(device)
+    node_features = node_features
     train_end     = config['data']['train_end']
     val_end       = config['data']['val_end']
     train_data    = node_features[:train_end]
