@@ -114,10 +114,13 @@ def build_and_save(config_path='config.yaml'):
     print(f"Std:  {std_f32}")
 
     print("Pass 3: normalizing and saving...")
-    sample_features, _, _ = load_year(data_dir, years[0])
-    T0, N, V = sample_features.shape
-    del sample_features
-    total_T = T0 * len(years)
+    year_lengths = []
+    for year in years:
+        surface = xr.open_dataset(f'{data_dir}/era5_surface_{year}.nc')
+        year_lengths.append(len(surface.valid_time))
+        surface.close()
+    total_T = sum(year_lengths)
+    N, V = 65160, 7
 
     mmap_path = f'{graph_dir}/node_features.npy'
     node_features_mmap = np.lib.format.open_memmap(
@@ -125,11 +128,10 @@ def build_and_save(config_path='config.yaml'):
     )
 
     offset = 0
-    for year in years:
-        print(f"  {year}")
+    for year, T in zip(years, year_lengths):
+        print(f"  {year} ({T} timesteps)")
         features, _, _ = load_year(data_dir, year)
-        T = features.shape[0]
-        node_features_mmap[offset:offset + T] = (features - mean_f32) / std_f32
+        node_features_mmap[offset:offset + T] = (features - mean) / std
         node_features_mmap.flush()
         offset += T
         del features
