@@ -140,7 +140,7 @@ def train(device='cpu', resume=False):
                     for k in range(K):
                         delta      = forward(model, x, graph, domain, edge_index, edge_features)
                         pred       = x + delta
-                        val_total += loss_fn(pred, val_data[t + k + 1]).to(device).item()
+                        val_total += loss_fn(pred, val_data[t + k + 1].to(device)).item()
                         x          = pred
 
         val_loss = val_total / ((len(val_data) - K) * K)
