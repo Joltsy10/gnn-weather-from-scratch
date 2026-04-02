@@ -100,7 +100,9 @@ def build_and_save(config_path='config.yaml'):
         print(f"  {year}")
         features, _, _ = load_year(data_dir, year)
         flat = features.reshape(-1, 7)
-        var += ((flat - mean_f32) ** 2).sum(axis=0)
+        flat -= mean_f32
+        flat **= 2
+        var += flat.sum(axis=0)
         del features, flat
     std = np.sqrt(var / total_n)
 
