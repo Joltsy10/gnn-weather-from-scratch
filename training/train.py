@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import yaml
 import sys
 import os
@@ -76,7 +77,7 @@ def train(device='cpu', resume=False):
         edge_dim      = edge_features.shape[1]
         model         = GNN(node_dim=node_dim, edge_dim=edge_dim).to(device)
     else:
-        node_features      = torch.load(f'{data_dir}/node_features.pt')
+        node_features      = node_features = torch.from_numpy(np.load(f'{data_dir}/node_features.npy', mmap_mode='r'))
         graph, num_levels  = load_global_graph(data_dir, device)
         edge_dim           = graph['g2m_features'].shape[1]
         model              = HiGNN(node_dim=node_dim, edge_dim=edge_dim,
@@ -107,7 +108,7 @@ def train(device='cpu', resume=False):
         optimizer.zero_grad()
 
         for t in range(train_data.shape[0] - K):
-            x = train_data[t]
+            x = train_data[t].to(device)
 
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_bf16):
                 loss = 0
@@ -134,7 +135,7 @@ def train(device='cpu', resume=False):
         val_total = 0.0
         with torch.no_grad():
             for t in range(len(val_data) - K):
-                x = val_data[t]
+                x = val_data[t].to(device)
                 with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_bf16):
                     for k in range(K):
                         delta      = forward(model, x, graph, domain, edge_index, edge_features)
