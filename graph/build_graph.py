@@ -95,12 +95,12 @@ def build_and_save(config_path='config.yaml'):
         del features, flat
 
     print("Pass 2: computing std...")
-    var = np.zeros(7, dtype=np.float64)
+    var = np.zeros(7, dtype=np.float32)
     for year in years:
         print(f"  {year}")
         features, _, _ = load_year(data_dir, year)
-        flat = features.reshape(-1, 7).astype(np.float64)
-        var += ((flat - mean) ** 2).sum(axis=0)
+        flat = features.reshape(-1, 7)
+        var += ((flat - mean_f32) ** 2).sum(axis=0)
         del features, flat
     std = np.sqrt(var / total_n)
 
