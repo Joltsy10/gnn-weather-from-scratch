@@ -53,22 +53,25 @@ def load_year(data_dir, year):
     return features, lat_flat, lon_flat
 
 def compute_mean_std(data_dir, years):
-    n = 0
-    mean = np.zeros(7, dtype=np.float64)
-    M2   = np.zeros(7, dtype=np.float64)
+    total_n = 0
+    combined_mean = np.zeros(7, dtype=np.float64)
+    combined_var  = np.zeros(7, dtype=np.float64)
 
     for year in years:
         print(f"  Computing stats for {year}...")
         features, _, _ = load_year(data_dir, year)
         flat = features.reshape(-1, 7).astype(np.float64)
-        for row in flat:
-            n    += 1
-            delta = row - mean
-            mean += delta / n
-            M2   += delta * (row - mean)
+        n    = flat.shape[0]
+        mean = flat.mean(axis=0)
+        var  = flat.var(axis=0)
 
-    std = np.sqrt(M2 / n)
-    return mean.astype(np.float32), std.astype(np.float32)
+        delta         = mean - combined_mean
+        new_n         = total_n + n
+        combined_mean = (combined_mean * total_n + mean * n) / new_n
+        combined_var  = (combined_var * total_n + var * n + delta**2 * total_n * n / new_n) / new_n
+        total_n       = new_n
+
+    return combined_mean.astype(np.float32), np.sqrt(combined_var).astype(np.float32)
 
 def build_lam_edges(lat_flat, lon_flat, k=16):
     coords = np.stack([lat_flat, lon_flat], axis=-1)
