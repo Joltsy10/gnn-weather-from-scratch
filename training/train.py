@@ -115,7 +115,7 @@ def train(device='cpu', resume=False):
                 for k in range(K):
                     delta = forward(model, x, graph, domain, edge_index, edge_features)
                     pred  = x + delta
-                    loss += loss_fn(pred, train_data[t + k + 1]).to(device)
+                    loss += loss_fn(pred, train_data[t + k + 1].to(device))
                     x     = pred
 
             (loss / accum_steps).backward()
