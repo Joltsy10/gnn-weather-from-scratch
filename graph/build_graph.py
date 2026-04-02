@@ -94,20 +94,22 @@ def build_and_save(config_path='config.yaml'):
         total_n += n
         del features, flat
 
+    mean_f32 = mean.astype(np.float32)
+
     print("Pass 2: computing std...")
     var = np.zeros(7, dtype=np.float32)
     for year in years:
         print(f"  {year}")
         features, _, _ = load_year(data_dir, year)
         flat = features.reshape(-1, 7)
-        flat -= mean
+        flat -= mean_f32
         flat **= 2
         var += flat.sum(axis=0)
         del features, flat
     std = np.sqrt(var / total_n)
 
-    mean_f32 = mean.astype(np.float32)
     std_f32  = std.astype(np.float32)
+
     torch.save(torch.tensor(mean_f32), f'{graph_dir}/mean.pt')
     torch.save(torch.tensor(std_f32),  f'{graph_dir}/std.pt')
     print(f"Mean: {mean_f32}")
@@ -131,7 +133,9 @@ def build_and_save(config_path='config.yaml'):
     for year, T in zip(years, year_lengths):
         print(f"  {year} ({T} timesteps)")
         features, _, _ = load_year(data_dir, year)
-        node_features_mmap[offset:offset + T] = (features - mean) / std
+        features -= mean_f32
+        features /= std_f32
+        node_features_mmap[offset:offset + T] = features
         node_features_mmap.flush()
         offset += T
         del features
