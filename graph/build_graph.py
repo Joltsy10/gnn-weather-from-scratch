@@ -27,18 +27,17 @@ def load_year(data_dir, year):
     pressure = xr.open_dataset(f'{data_dir}/era5_pressure_{year}.nc')
 
     T = len(surface.valid_time)
+    N = surface['u10'].shape[1] * surface['u10'].shape[2]
 
-    u10  = surface['u10'].values.reshape(T, -1)
-    v10  = surface['v10'].values.reshape(T, -1)
-    sp   = surface['sp'].values.reshape(T, -1)
-    t850 = pressure['t'].values[:, 0, :, :].reshape(T, -1)
-    t500 = pressure['t'].values[:, 1, :, :].reshape(T, -1)
-    z850 = pressure['z'].values[:, 0, :, :].reshape(T, -1)
-    z500 = pressure['z'].values[:, 1, :, :].reshape(T, -1)
+    features = np.empty((T, N, 7), dtype=np.float32)
+    features[:, :, 0] = surface['u10'].values.reshape(T, -1)
+    features[:, :, 1] = surface['v10'].values.reshape(T, -1)
+    features[:, :, 2] = surface['sp'].values.reshape(T, -1)
+    features[:, :, 3] = pressure['t'].values[:, 0, :, :].reshape(T, -1)
+    features[:, :, 4] = pressure['t'].values[:, 1, :, :].reshape(T, -1)
+    features[:, :, 5] = pressure['z'].values[:, 0, :, :].reshape(T, -1)
+    features[:, :, 6] = pressure['z'].values[:, 1, :, :].reshape(T, -1)
 
-    features = np.stack([u10, v10, sp, t850, t500, z850, z500], axis=-1)
-
-    lat_flat, lon_flat = None, None
     lat_grid, lon_grid = np.meshgrid(
         surface.latitude.values,
         surface.longitude.values,
@@ -51,24 +50,6 @@ def load_year(data_dir, year):
     pressure.close()
 
     return features, lat_flat, lon_flat
-
-def compute_mean_std(data_dir, years):
-    n = 0
-    mean = np.zeros(7, dtype=np.float64)
-    M2   = np.zeros(7, dtype=np.float64)
-
-    for year in years:
-        print(f"  Computing stats for {year}...")
-        features, _, _ = load_year(data_dir, year)
-        flat = features.reshape(-1, 7).astype(np.float64)
-        for row in flat:
-            n    += 1
-            delta = row - mean
-            mean += delta / n
-            M2   += delta * (row - mean)
-
-    std = np.sqrt(M2 / n)
-    return mean.astype(np.float32), std.astype(np.float32)
 
 def build_lam_edges(lat_flat, lon_flat, k=16):
     coords = np.stack([lat_flat, lon_flat], axis=-1)
@@ -90,48 +71,76 @@ def build_lam_edges(lat_flat, lon_flat, k=16):
     return edge_index, edge_features
 
 def build_and_save(config_path='config.yaml'):
-    config   = load_config(config_path)
-    domain   = config['domain']
-    data_dir = f'data/{domain}'
+    config    = load_config(config_path)
+    domain    = config['domain']
+    data_dir  = f'data/{domain}'
     graph_dir = f'data/{domain}'
-
-    print(f"Domain: {domain}")
 
     years = get_years(data_dir)
     print(f"Found years: {years}")
 
-    print("Computing mean and std incrementally...")
-    mean, std = compute_mean_std(data_dir, years)
-    torch.save(torch.tensor(mean, dtype=torch.float32), f'{graph_dir}/mean.pt')
-    torch.save(torch.tensor(std,  dtype=torch.float32), f'{graph_dir}/std.pt')
-    print(f"Mean: {mean}")
-    print(f"Std:  {std}")
+    print("Pass 1: computing mean...")
+    total_n = 0
+    mean = np.zeros(7, dtype=np.float64)
+    lat_flat, lon_flat = None, None
+    for year in years:
+        print(f"  {year}")
+        features, lf, lonf = load_year(data_dir, year)
+        if lat_flat is None:
+            lat_flat, lon_flat = lf, lonf
+        flat = features.reshape(-1, 7)
+        n    = flat.shape[0]
+        mean = (mean * total_n + flat.astype(np.float64).sum(axis=0)) / (total_n + n)
+        total_n += n
+        del features, flat
 
-    print("Normalizing and saving node features year by year...")
-    first_year_features, lat_flat, lon_flat = load_year(data_dir, years[0])
-    T0, N, V = first_year_features.shape
-    total_T = T0 * len(years)
+    mean_f32 = mean.astype(np.float32)
 
+    print("Pass 2: computing std...")
+    var = np.zeros(7, dtype=np.float32)
+    for year in years:
+        print(f"  {year}")
+        features, _, _ = load_year(data_dir, year)
+        flat = features.reshape(-1, 7)
+        flat -= mean_f32
+        flat **= 2
+        var += flat.sum(axis=0)
+        del features, flat
+    std = np.sqrt(var / total_n)
+
+    std_f32  = std.astype(np.float32)
+
+    torch.save(torch.tensor(mean_f32), f'{graph_dir}/mean.pt')
+    torch.save(torch.tensor(std_f32),  f'{graph_dir}/std.pt')
+    print(f"Mean: {mean_f32}")
+    print(f"Std:  {std_f32}")
+
+    print("Pass 3: normalizing and saving...")
+    year_lengths = []
+    for year in years:
+        surface = xr.open_dataset(f'{data_dir}/era5_surface_{year}.nc')
+        year_lengths.append(len(surface.valid_time))
+        surface.close()
+    total_T = sum(year_lengths)
+    N, V = 65160, 7
+
+    mmap_path = f'{graph_dir}/node_features.npy'
     node_features_mmap = np.lib.format.open_memmap(
-        f'{graph_dir}/node_features_mmap.npy',
-        mode='w+',
-        dtype=np.float32,
-        shape=(total_T, N, V)
+        mmap_path, mode='w+', dtype=np.float32, shape=(total_T, N, V)
     )
 
     offset = 0
-    for year in years:
-        print(f"  Normalizing {year}...")
+    for year, T in zip(years, year_lengths):
+        print(f"  {year} ({T} timesteps)")
         features, _, _ = load_year(data_dir, year)
-        normalized = (features - mean) / std
-        T = normalized.shape[0]
-        node_features_mmap[offset:offset + T] = normalized.astype(np.float32)
+        features -= mean_f32
+        features /= std_f32
+        node_features_mmap[offset:offset + T] = features
+        node_features_mmap.flush()
         offset += T
+        del features
 
-    print("Converting memmap to tensor and saving...")
-    node_features_tensor = torch.from_numpy(np.array(node_features_mmap))
-    torch.save(node_features_tensor, f'{graph_dir}/node_features.pt')
-    os.remove(f'{graph_dir}/node_features_mmap.npy')
+    print(f"Node features shape: {node_features_mmap.shape}")
 
     torch.save(torch.tensor(lat_flat, dtype=torch.float32), f'{graph_dir}/lat.pt')
     torch.save(torch.tensor(lon_flat, dtype=torch.float32), f'{graph_dir}/lon.pt')
@@ -154,7 +163,6 @@ def build_and_save(config_path='config.yaml'):
             g2m_angle_deg = config['graph']['g2m_angle_deg']
         )
 
-    print(f"Node features shape: {node_features_tensor.shape}")
     print(f"Saved to {graph_dir}")
 
 if __name__ == "__main__":
