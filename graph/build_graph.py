@@ -50,26 +50,6 @@ def load_year(data_dir, year):
     pressure.close()
 
     return features, lat_flat, lon_flat
-def compute_mean_std(data_dir, years):
-    total_n = 0
-    combined_mean = np.zeros(7, dtype=np.float64)
-    combined_var  = np.zeros(7, dtype=np.float64)
-
-    for year in years:
-        print(f"  Computing stats for {year}...")
-        features, _, _ = load_year(data_dir, year)
-        flat = features.reshape(-1, 7).astype(np.float64)
-        n    = flat.shape[0]
-        mean = flat.mean(axis=0)
-        var  = flat.var(axis=0)
-
-        delta         = mean - combined_mean
-        new_n         = total_n + n
-        combined_mean = (combined_mean * total_n + mean * n) / new_n
-        combined_var  = (combined_var * total_n + var * n + delta**2 * total_n * n / new_n) / new_n
-        total_n       = new_n
-
-    return combined_mean.astype(np.float32), np.sqrt(combined_var).astype(np.float32)
 
 def build_lam_edges(lat_flat, lon_flat, k=16):
     coords = np.stack([lat_flat, lon_flat], axis=-1)
@@ -91,48 +71,68 @@ def build_lam_edges(lat_flat, lon_flat, k=16):
     return edge_index, edge_features
 
 def build_and_save(config_path='config.yaml'):
-    config   = load_config(config_path)
-    domain   = config['domain']
-    data_dir = f'data/{domain}'
+    config    = load_config(config_path)
+    domain    = config['domain']
+    data_dir  = f'data/{domain}'
     graph_dir = f'data/{domain}'
-
-    print(f"Domain: {domain}")
 
     years = get_years(data_dir)
     print(f"Found years: {years}")
 
-    print("Computing mean and std incrementally...")
-    mean, std = compute_mean_std(data_dir, years)
-    torch.save(torch.tensor(mean, dtype=torch.float32), f'{graph_dir}/mean.pt')
-    torch.save(torch.tensor(std,  dtype=torch.float32), f'{graph_dir}/std.pt')
-    print(f"Mean: {mean}")
-    print(f"Std:  {std}")
+    print("Pass 1: computing mean...")
+    total_n = 0
+    mean = np.zeros(7, dtype=np.float64)
+    lat_flat, lon_flat = None, None
+    for year in years:
+        print(f"  {year}")
+        features, lf, lonf = load_year(data_dir, year)
+        if lat_flat is None:
+            lat_flat, lon_flat = lf, lonf
+        flat = features.reshape(-1, 7)
+        n    = flat.shape[0]
+        mean = (mean * total_n + flat.astype(np.float64).sum(axis=0)) / (total_n + n)
+        total_n += n
+        del features, flat
 
-    print("Normalizing and saving node features year by year...")
-    first_year_features, lat_flat, lon_flat = load_year(data_dir, years[0])
-    T0, N, V = first_year_features.shape
+    print("Pass 2: computing std...")
+    var = np.zeros(7, dtype=np.float64)
+    for year in years:
+        print(f"  {year}")
+        features, _, _ = load_year(data_dir, year)
+        flat = features.reshape(-1, 7).astype(np.float64)
+        var += ((flat - mean) ** 2).sum(axis=0)
+        del features, flat
+    std = np.sqrt(var / total_n)
+
+    mean_f32 = mean.astype(np.float32)
+    std_f32  = std.astype(np.float32)
+    torch.save(torch.tensor(mean_f32), f'{graph_dir}/mean.pt')
+    torch.save(torch.tensor(std_f32),  f'{graph_dir}/std.pt')
+    print(f"Mean: {mean_f32}")
+    print(f"Std:  {std_f32}")
+
+    print("Pass 3: normalizing and saving...")
+    sample_features, _, _ = load_year(data_dir, years[0])
+    T0, N, V = sample_features.shape
+    del sample_features
     total_T = T0 * len(years)
 
+    mmap_path = f'{graph_dir}/node_features.npy'
     node_features_mmap = np.lib.format.open_memmap(
-        f'{graph_dir}/node_features_mmap.npy',
-        mode='w+',
-        dtype=np.float32,
-        shape=(total_T, N, V)
+        mmap_path, mode='w+', dtype=np.float32, shape=(total_T, N, V)
     )
 
     offset = 0
     for year in years:
-        print(f"  Normalizing {year}...")
+        print(f"  {year}")
         features, _, _ = load_year(data_dir, year)
-        normalized = (features - mean) / std
-        T = normalized.shape[0]
-        node_features_mmap[offset:offset + T] = normalized.astype(np.float32)
+        T = features.shape[0]
+        node_features_mmap[offset:offset + T] = (features - mean_f32) / std_f32
+        node_features_mmap.flush()
         offset += T
+        del features
 
-    print("Converting memmap to tensor and saving...")
-    node_features_tensor = torch.from_numpy(np.array(node_features_mmap))
-    torch.save(node_features_tensor, f'{graph_dir}/node_features.pt')
-    os.remove(f'{graph_dir}/node_features_mmap.npy')
+    print(f"Node features shape: {node_features_mmap.shape}")
 
     torch.save(torch.tensor(lat_flat, dtype=torch.float32), f'{graph_dir}/lat.pt')
     torch.save(torch.tensor(lon_flat, dtype=torch.float32), f'{graph_dir}/lon.pt')
@@ -155,7 +155,6 @@ def build_and_save(config_path='config.yaml'):
             g2m_angle_deg = config['graph']['g2m_angle_deg']
         )
 
-    print(f"Node features shape: {node_features_tensor.shape}")
     print(f"Saved to {graph_dir}")
 
 if __name__ == "__main__":
