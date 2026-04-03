@@ -99,7 +99,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
 
     config   = load_config()
-    rollout_steps = config['training'][rollout_steps]
+    rollout_steps = config['training']['rollout_steps']
     mae_model, mae_persistence, std, mean = inference(device=device)
 
     var_names = ['u10', 'v10', 'sp', 't850', 't500', 'z850', 'z500']
