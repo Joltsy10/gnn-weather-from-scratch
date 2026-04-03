@@ -37,7 +37,7 @@ def inference(device='cpu'):
     data_dir = f'data/{domain}'
     node_dim = config['model']['node_dim']
     val_end  = config['data']['val_end']
-    rollout_steps = config['training'][rollout_steps]
+    rollout_steps = config['training']['rollout_steps']
 
     node_features = torch.from_numpy(
         np.load(f'{data_dir}/node_features.npy', mmap_mode='r')
