@@ -1,4 +1,4 @@
-# GNN Weather Forecasting — LAM and Global
+# GNN Weather Forecasting : LAM and Global
 
 Graph neural network for short-range weather forecasting, built from scratch using ERA5 reanalysis data. Supports two domains via a single config switch: a regional LAM setup over India, and a global setup using a hierarchical icosahedral mesh. Encode-process-decode architecture with autoregressive training.
 
@@ -143,21 +143,7 @@ Largest errors concentrated in the Himalayan and Tibetan Plateau region. The mod
 
 Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical icosahedral mesh at refinement level 2 (162 finest mesh nodes, 3 levels), 30 epochs, K=1 rollout, bf16 mixed precision, gradient accumulation 16 steps on NVIDIA L4.
 
-#### Training Curve
-
-| Epoch | Train Loss | Val Loss |
-|---|---|---|
-| 1 | 0.125068 | 0.118681 |
-| 5 | 0.102108 | 0.102620 |
-| 10 | 0.097316 | 0.099679 |
-| 15 | 0.095172 | 0.099290 |
-| 20 | 0.093765 | 0.099249 |
-| 25 | 0.092749 | 0.097507 |
-| 30 | 0.092223 | 0.095992 |
-
-Best val loss: 0.095912 (epoch 28).
-
-#### Rollout MAE — Model vs Persistence
+#### Rollout MAE : Model vs Persistence
 
 | Step | Hours | Model MAE | Persistence MAE | Skill |
 |---|---|---|---|---|
