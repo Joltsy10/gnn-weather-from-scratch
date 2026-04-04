@@ -44,7 +44,7 @@ class HiGNN(nn.Module):
         # no features — we initialize them to zeros and let the G2M
         # pass populate the finest level, then up/down populate the rest
         self.mesh_encoders = nn.ModuleList([
-            nn.Linear(2, hidden_dim)  # mesh node features are [lat, lon]
+            nn.Linear(4, hidden_dim)  # mesh node features are [lat, lon]
             for _ in range(num_levels)
         ])
 
@@ -67,11 +67,16 @@ class HiGNN(nn.Module):
         grid_rep = self.grid_encoder(grid_features) # (N_grid, hidden_dim)
 
         # Encoder
+        def encode_positions(coords):
+            lat = coords[:, 0] * torch.pi / 180
+            lon = coords[:, 1] * torch.pi / 180
+            return torch.stack([torch.sin(lat), torch.cos(lat),
+                                torch.sin(lon), torch.cos(lon)], dim=-1)
+
         mesh_rep = [
-            encoder(graph['mesh_features'][i])
+            encoder(encode_positions(graph['mesh_features'][i]))
             for i, encoder in enumerate(self.mesh_encoders)
         ]
-        # mesh_rep is a list of (N_mesh[i], hidden_dim), one per level
 
         # G2M: grid to finest mesh level
         finest_mesh_rep = self.g2m_gnn(
