@@ -7,6 +7,7 @@ from scipy.spatial import cKDTree
 import xarray as xr
 import yaml
 import torch
+from torch_geometric.data import HeteroData
 from bridge import build_graph as build_icosahedral_graph
 
 
@@ -51,6 +52,12 @@ def load_year(data_dir, year):
 
     return features, lat_flat, lon_flat
 
+def encode_positions(lat_lon):
+    lat = torch.tensor(lat_lon[:, 0], dtype=torch.float32) * torch.pi / 180
+    lon = torch.tensor(lat_lon[:, 1], dtype=torch.float32) * torch.pi / 180
+    return torch.stack([torch.sin(lat), torch.cos(lat),
+                        torch.sin(lon), torch.cos(lon)], dim=-1)
+
 def build_lam_edges(lat_flat, lon_flat, k=16):
     coords = np.stack([lat_flat, lon_flat], axis=-1)
     tree = cKDTree(coords)
@@ -69,6 +76,43 @@ def build_lam_edges(lat_flat, lon_flat, k=16):
     edge_features = np.stack([delta_lat, delta_lon, dist], axis=-1)
 
     return edge_index, edge_features
+
+def build_heterodata(mesh_data, num_levels):
+    graph = HeteroData()
+
+    for i in range(num_levels):
+        graph[f'mesh_{i}'].x = encode_positions(mesh_data['mesh_lat_lon'][i])
+
+    finest = num_levels - 1
+
+    graph['grid', 'g2m', f'mesh_{finest}'].edge_index = torch.tensor(
+        mesh_data['g2m_edge_index'], dtype=torch.long)
+    graph['grid', 'g2m', f'mesh_{finest}'].edge_attr = torch.tensor(
+        mesh_data['g2m_features'], dtype=torch.float32)
+
+    graph[f'mesh_{finest}', 'm2g', 'grid'].edge_index = torch.tensor(
+        mesh_data['m2g_edge_index'], dtype=torch.long)
+    graph[f'mesh_{finest}', 'm2g', 'grid'].edge_attr = torch.tensor(
+        mesh_data['m2g_features'], dtype=torch.float32)
+
+    for i in range(num_levels):
+        graph[f'mesh_{i}', 'm2m', f'mesh_{i}'].edge_index = torch.tensor(
+            mesh_data['m2m_edge_index'][i], dtype=torch.long)
+        graph[f'mesh_{i}', 'm2m', f'mesh_{i}'].edge_attr = torch.tensor(
+            mesh_data['m2m_features'][i], dtype=torch.float32)
+
+    for i in range(num_levels - 1):
+        graph[f'mesh_{i+1}', 'up', f'mesh_{i}'].edge_index = torch.tensor(
+            mesh_data['up_edge_index'][i], dtype=torch.long)
+        graph[f'mesh_{i+1}', 'up', f'mesh_{i}'].edge_attr = torch.tensor(
+            mesh_data['up_features'][i], dtype=torch.float32)
+
+        graph[f'mesh_{i}', 'down', f'mesh_{i+1}'].edge_index = torch.tensor(
+            mesh_data['down_edge_index'][i], dtype=torch.long)
+        graph[f'mesh_{i}', 'down', f'mesh_{i+1}'].edge_attr = torch.tensor(
+            mesh_data['down_features'][i], dtype=torch.float32)
+
+    return graph
 
 def build_and_save(config_path='config.yaml'):
     config    = load_config(config_path)
@@ -107,8 +151,7 @@ def build_and_save(config_path='config.yaml'):
         var += flat.sum(axis=0)
         del features, flat
     std = np.sqrt(var / total_n)
-
-    std_f32  = np.maximum(std.astype(np.float32), 1e-6)
+    std_f32 = np.maximum(std.astype(np.float32), 1e-6)
 
     torch.save(torch.tensor(mean_f32), f'{graph_dir}/mean.pt')
     torch.save(torch.tensor(std_f32),  f'{graph_dir}/std.pt')
@@ -150,18 +193,22 @@ def build_and_save(config_path='config.yaml'):
         edge_index, edge_features = build_lam_edges(
             lat_flat, lon_flat, k=config['graph']['k']
         )
-        torch.save(torch.tensor(edge_index,    dtype=torch.long),    f'{graph_dir}/edge_index.pt')
-        torch.save(torch.tensor(edge_features, dtype=torch.float32), f'{graph_dir}/edge_features.pt')
-        print(f"Nodes: {len(lat_flat)}")
-        print(f"Edges: {edge_index.shape[1]}")
+        graph = HeteroData()
+        graph['grid', 'knn', 'grid'].edge_index = torch.tensor(edge_index, dtype=torch.long)
+        graph['grid', 'knn', 'grid'].edge_attr  = torch.tensor(edge_features, dtype=torch.float32)
+        torch.save(graph, f'{graph_dir}/graph.pt')
+        print(f"Nodes: {len(lat_flat)}, Edges: {edge_index.shape[1]}")
     else:
-        build_icosahedral_graph(
+        mesh_data = build_icosahedral_graph(
             mesh_level    = config['graph']['mesh_level'],
             grid_lat      = lat_flat,
             grid_lon      = lon_flat,
-            output_dir    = graph_dir,
             g2m_angle_deg = config['graph']['g2m_angle_deg']
         )
+        num_levels = config['graph']['mesh_level'] + 1
+        graph = build_heterodata(mesh_data, num_levels)
+        torch.save(graph, f'{graph_dir}/graph.pt')
+        print(f"Saved graph.pt with {num_levels} mesh levels")
 
     print(f"Saved to {graph_dir}")
 
