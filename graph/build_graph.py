@@ -108,7 +108,7 @@ def build_and_save(config_path='config.yaml'):
         del features, flat
     std = np.sqrt(var / total_n)
 
-    std_f32  = std.astype(np.float32)
+    std_f32  = np.maximum(std.astype(np.float32), 1e-6)
 
     torch.save(torch.tensor(mean_f32), f'{graph_dir}/mean.pt')
     torch.save(torch.tensor(std_f32),  f'{graph_dir}/std.pt')
