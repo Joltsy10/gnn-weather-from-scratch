@@ -28,6 +28,9 @@ Encode-process-decode GNN with hierarchical icosahedral mesh. Implements the HiL
   - Separate learned weights per level and per pass type
 - **M2G decoder**: message passing from finest mesh level back to grid nodes
 - **Residual prediction**: same delta formulation as LAM
+- **Positional encoding**: mesh node positions encoded as [sin(lat), cos(lat), sin(lon), cos(lon)] to handle spherical discontinuities
+- **Layer normalization**: post-norm after each message passing layer for training stability
+- **Residual connections**: skip connections inside each message passing layer for gradient flow
 
 | Hyperparameter | LAM | Global |
 |---|---|---|
@@ -50,12 +53,15 @@ ERA5 reanalysis downloaded via CDS API, 6-hourly timesteps at 1° resolution.
 
 **Global domain:** Full sphere 181×360 (65,160 grid nodes)
 
-**Split:**
-- Train: 2019–2020 (2688 timesteps)
-- Val: 2021 (1344 timesteps)
-- Test: 2022 (1344 timesteps)
+**Global split (10 years):**
+- Train: 2010–2017 (11,688 timesteps)
+- Val: 2018 (1,461 timesteps)
+- Test: 2019 (1,461 timesteps)
 
-Pressure level downloads split by variable (temperature and geopotential separately) to stay within CDS cost limits.
+**LAM split:**
+- Train: 2019–2020 (2,688 timesteps)
+- Val: 2021 (1,344 timesteps)
+- Test: 2022 (1,344 timesteps)
 
 ---
 
@@ -65,7 +71,33 @@ Pressure level downloads split by variable (temperature and geopotential separat
 - **Optimizer**: Adam, lr=0.001
 - **Scheduler**: ReduceLROnPlateau, patience=3, factor=0.5
 - **Gradient clipping**: max_norm=1.0
+- **Gradient accumulation**: 16 steps (effective batch size)
+- **Mixed precision**: bf16 autocast on CUDA
 - **Epochs**: 30
+- **Checkpointing**: epoch-level checkpoint saved locally and synced to GCS after every epoch for preemption recovery
+
+---
+
+## Infrastructure
+
+### GCP Training Pipeline
+
+Global training runs on Google Cloud Platform using the following setup:
+
+**Data storage:** ERA5 data downloaded once to a public GCS bucket (`gs://era5-global-mesh-rayyan`) and shared across VMs. Storage cost is ~$0.50/month for 10 years at 1°.
+
+**Data download VM:** `e2-standard-4` CPU-only VM (~$0.13/hr) used exclusively for CDS API downloads, uploading directly to GCS after each year to avoid local disk limits.
+
+**Training VM:** NVIDIA L4 (24GB VRAM) on `g2-standard-4` for mesh 2 validation runs. A100 80GB or H100 80GB spot VMs planned for mesh 3 and 4.
+
+**Checkpoint recovery:** Training script syncs `checkpoint_latest.pt` to GCS after every epoch. On preemption, the VM restarts and resumes from the last epoch automatically.
+
+**Estimated costs (spot pricing):**
+| Run | GPU | Est. time | Est. cost |
+|---|---|---|---|
+| Mesh 2, hidden 128, 10yr | L4 | ~2.5 hrs | ~$2 |
+| Mesh 3, hidden 128, 10yr | H100 80GB | ~3-4 hrs | ~$8 |
+| Mesh 4, hidden 128, 10yr | H100 80GB | ~20-24 hrs | ~$50 |
 
 ---
 
@@ -107,9 +139,11 @@ Largest errors concentrated in the Himalayan and Tibetan Plateau region. The mod
 
 ## Global Results
 
-Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical icosahedral mesh at refinement level 2 (162 finest mesh nodes, 3 levels), 30 epochs, K=1 rollout.
+### Mesh Level 2 — hidden_dim 128, 10 years (2010–2019)
 
-### Training Curve
+Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical icosahedral mesh at refinement level 2 (162 finest mesh nodes, 3 levels), 30 epochs, K=1 rollout, bf16 mixed precision, gradient accumulation 16 steps on NVIDIA L4.
+
+#### Training Curve
 
 | Epoch | Train Loss | Val Loss |
 |---|---|---|
@@ -123,50 +157,48 @@ Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical 
 
 Best val loss: 0.095912 (epoch 28).
 
-### Per-variable MAE at T+1 (6h) — Model vs Persistence
+#### Rollout MAE — Model vs Persistence
 
-| Variable | Model MAE | Persistence MAE | Improvement |
+| Step | Hours | Model MAE | Persistence MAE | Skill |
+|---|---|---|---|---|
+| T+1 | 6h | 0.124950 | 0.152695 | +18.2% |
+| T+2 | 12h | 0.182742 | 0.228226 | +19.9% |
+| T+3 | 18h | 0.225902 | 0.285838 | +21.0% |
+| T+4 | 24h | 0.260982 | 0.316000 | +17.4% |
+
+Skill peaks at T+3 (18h) and degrades gracefully at T+4, consistent with the model learning multi-step temporal dynamics rather than single-step pattern matching.
+
+#### Per-variable MAE at T+1 (6h)
+
+| Variable | Model | Persistence | Unit |
 |---|---|---|---|
-| u10 | 1.2345 m/s | 1.4905 m/s | 17% |
-| v10 | 1.2529 m/s | 1.6235 m/s | 23% |
-| sp | 176.05 Pa | 190.06 Pa | 7% |
-| t850 | 0.9919 K | 1.1271 K | 12% |
-| t500 | 0.8773 K | 0.9422 K | 7% |
-| z850 | 130.11 m²/s² | 149.11 m²/s² | 13% |
-| z500 | 158.58 m²/s² | 180.90 m²/s² | 12% |
+| u10 | 0.6055 | 0.7400 | m/s |
+| v10 | 0.5188 | 0.6340 | m/s |
+| sp | 1098.60 | 1342.54 | Pa |
+| t850 | 1.6077 | 1.9647 | K |
+| t500 | 1.2521 | 1.5301 | K |
+| z850 | 154.77 | 189.13 | m²/s² |
+| z500 | 323.75 | 395.64 | m²/s² |
 
-Model beats persistence on every variable. Wind components show the largest improvement (17–23%); persistence is particularly poor for wind since it cannot capture advection. Thermodynamic variables show smaller gains as they change more slowly.
+Model beats persistence on all 7 variables. Wind components show the largest absolute improvement; thermodynamic variables show smaller gains as they change more slowly over 6h.
 
-Rollout normalized MAE at T+1: **0.1257** vs persistence **0.1448**.
+#### Global Error Visualization
 
-### Global Error Visualization
-
-Interactive 3D globe with elevation-based error heatmap with the nodes displaced outward proportional to prediction error, colored by magnitude. Higher spikes indicate regions of larger forecast error.
+Interactive 3D globe with elevation-based error heatmap where nodes are displaced outward proportional to prediction error, colored by magnitude. Higher spikes indicate regions of larger forecast error.
 
 ![Global Error Globe](plots/globe_error.png)
 
 Run `visualize_globe.ipynb` for the interactive version.
 
-### Notes
+#### Notes
 
-Refinement level 2 is a coarse mesh designed for rapid iteration; the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity.
-
-### Mesh Level 3 (Early Stopping)
-
-Training was also run at refinement level 3 (642 finest mesh nodes, 4 levels, 177,160 G2M edges) with hidden_dim reduced to 64 to fit within 8GB VRAM.
-
-| Epoch | Train Loss | Val Loss |
-|---|---|---|
-| 1 | 0.112517 | 0.102669 |
-| 2 | 0.098427 | 0.095169 |
-
-Training was stopped after 2 epochs due to compute time (~7 hours per epoch on a laptop 4070). The val loss at epoch 2 (0.095169) already matches mesh level 2's best result (0.095912) despite being only 2 epochs in, confirming that finer mesh resolution improves convergence rate. Full convergence at mesh level 3 requires cluster hardware. Training can be resumed from the saved checkpoint with `resume=True` in train.py.
+Refinement level 2 is a coarse mesh designed for rapid iteration; the processor operates on 12, 42, and 162 mesh nodes across the three levels. Accuracy is limited by mesh resolution rather than model capacity. Mesh level 3 and 4 runs are planned on H100 80GB and results will be added as they complete.
 
 ---
 
 ## Switching Domains
 
-Set `domain: lam` or `domain: global` in `config.yaml`. Everything downstream — data loading, graph construction, model selection — branches automatically.
+Set `domain: lam` or `domain: global` in `config.yaml`. Everything  is downstream so data loading, graph construction, model selection, all branch automatically.
 
 ```yaml
 domain: global  # or lam
@@ -180,6 +212,17 @@ model:
   hidden_dim: 128
   num_layers: 2          # lam only
   node_dim: 7
+
+data:
+  train_end: 11688       # global: 8 years
+  val_end: 13149         # global: 1 year val
+
+training:
+  num_epochs: 30
+  lr: 0.001
+  accum_steps: 16
+  rollout_steps: 4
+  gcs_checkpoint: gs://your-bucket/checkpoints/checkpoint_latest.pt
 ```
 
 ---
@@ -188,39 +231,30 @@ model:
 
 ### Install dependencies
 ```bash
-pip install torch numpy scipy pyyaml cdsapi xarray matplotlib plotly
+pip install torch numpy scipy pyyaml cdsapi xarray matplotlib plotly netcdf4
 ```
 
 ### Download ERA5 data
 ```bash
 python data/download_era5.py
 ```
-Requires a CDS API key at `~/.cdsapirc`. Downloads surface and pressure level files separately to avoid CDS cost limits.
+Requires a CDS API key at `~/.cdsapirc`. Downloads surface and pressure level files per year, uploading each to GCS immediately to avoid local disk limits.
 
 ### Build graph
 ```bash
 python graph/build_graph.py
 ```
-LAM builds a flat KNN graph. Global calls the icosahedral bridge layer from [neural-lam-global-mesh](https://github.com/Joltsy10/neural-lam-global-mesh) and saves all `.pt` files in the format `utils.load_graph` expects.
+Processes data in 3 passes (mean, std, normalization) to stay within RAM limits for large datasets. LAM builds a flat KNN graph. Global calls the icosahedral bridge layer from [neural-lam-global-mesh](https://github.com/Joltsy10/neural-lam-global-mesh).
 
 ### Train
 ```bash
-python training/train.py
+nohup python training/train.py > training.log 2>&1 &
 ```
+Use `nohup` for long runs on cloud VMs so training continues after SSH disconnects. Resume from checkpoint automatically with `resume=True` (default).
 
 ### Inference
 ```bash
 python training/inference.py
-```
-
-### Persistence baseline
-```bash
-python training/baseline.py
-```
-
-### Visualize (2D)
-```bash
-jupyter notebook visualize.ipynb
 ```
 
 ### Visualize (3D Globe)
@@ -235,21 +269,20 @@ jupyter notebook visualize_globe.ipynb
 ```
 gnn-weather-from-scratch/
 ├── data/
-│   ├── download_era5.py       — CDS API download, split by variable for global
+│   ├── download_era5.py       — CDS API download, per-year with GCS upload
 │   ├── lam/                   — LAM ERA5 files + built graph .pt files
 │   └── global/                — Global ERA5 files + built graph .pt files
 ├── graph/
-│   └── build_graph.py         — Config-aware graph construction for LAM and global
+│   └── build_graph.py         — Memory-efficient 3-pass graph construction
 ├── model/
 │   ├── gnn.py                 — Flat GNN for LAM
 │   ├── hi_gnn.py              — Hierarchical GNN for global (HiLAM-style)
-│   └── message_passing.py     — Shared bipartite-aware MessagePassingLayer
+│   └── message_passing.py     — MessagePassingLayer with residual + LayerNorm
 ├── training/
-│   ├── train.py               — Domain-aware training loop
-│   ├── inference.py           — Rollout and evaluation (LAM and global)
-│   └── baseline.py            — Persistence baseline (LAM and global)
+│   ├── train.py               — Training loop with bf16, grad accumulation, GCS checkpointing
+│   ├── inference.py           — Rollout evaluation vs persistence baseline
+│   └── baseline.py            — Persistence baseline
 ├── plots/
-├── visualize.ipynb            — 2D cartopy plots (LAM)
 ├── visualize_globe.ipynb      — Interactive 3D globe (Global)
 └── config.yaml
 ```
@@ -260,4 +293,3 @@ gnn-weather-from-scratch/
 
 The global hierarchical model here is a simplified standalone implementation of the architecture described in [Oskarsson et al. (2024)](https://arxiv.org/abs/2309.17370). The graph files produced by `build_graph.py` are in the exact format `utils.load_graph` expects in neural-lam, so the bridge to the full neural-lam codebase is direct.
 
-The `MessagePassingLayer` in `message_passing.py` supports bipartite passes with separate source and destination node sets, which is required for G2M, M2G, and inter-level up/down passes in the hierarchical case.
