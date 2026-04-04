@@ -16,6 +16,7 @@ class MessagePassingLayer(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, node_dim)
         )
+        self.norm = nn.LayerNorm(node_dim)
 
     def forward(self, src_features, dst_features, edge_index, 
                 edge_features, n_dst_nodes=None):
@@ -46,7 +47,7 @@ class MessagePassingLayer(nn.Module):
         update_input = torch.cat([dst_features, aggregated], dim=-1)
         new_dst_features = self.update_mlp(update_input)  # (N_dst, node_dim)
 
-        return new_dst_features
+        return self.norm(dst_features, new_dst_features)
     
 if __name__ == "__main__":
     layer = MessagePassingLayer(node_dim=7, edge_dim=3, hidden_dim=64)
