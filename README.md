@@ -139,7 +139,7 @@ Largest errors concentrated in the Himalayan and Tibetan Plateau region. The mod
 
 ## Global Results
 
-### Mesh Level 2 — hidden_dim 128, 10 years (2010–2019)
+### Mesh Level 2 : hidden_dim 128, 10 years (2010–2019)
 
 Trained on full sphere ERA5 at 1° resolution (65,160 grid nodes), hierarchical icosahedral mesh at refinement level 2 (162 finest mesh nodes, 3 levels), 30 epochs, K=1 rollout, bf16 mixed precision, gradient accumulation 16 steps on NVIDIA L4.
 
