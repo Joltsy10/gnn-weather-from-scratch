@@ -107,7 +107,9 @@ def train(device='cpu', resume=False):
         total_loss  = 0.0
         optimizer.zero_grad()
 
-        for t in range(train_data.shape[0] - K):
+        indices = torch.randperm(train_data.shape[0] - K)
+        for t in indices:
+            t = t.item()
             x = train_data[t].to(device)
 
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_bf16):
