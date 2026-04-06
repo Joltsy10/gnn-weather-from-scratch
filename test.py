@@ -1,20 +1,80 @@
+# test_train.py
+import numpy as np
 import torch
-from model.message_passing import MessagePassingLayer
+import os
+from torch_geometric.data import HeteroData
 
-torch.manual_seed(42)
-nodes = torch.randn(100, 7, requires_grad=True)
-edge_index = torch.randint(0, 100, (2, 400))
-edges = torch.randn(400, 3)
+# create tiny fake graph
+N_grid  = 100
+N_mesh0 = 12
+N_mesh1 = 42
+N_mesh2 = 162
+edge_dim = 3
+node_dim = 7
+hidden_dim = 16
 
-layer = MessagePassingLayer(node_dim=7, edge_dim=3, hidden_dim=64)
-out = layer(nodes, nodes, edge_index, edges)
+graph = HeteroData()
+graph['mesh_0'].x = torch.randn(N_mesh0, 4)
+graph['mesh_1'].x = torch.randn(N_mesh1, 4)
+graph['mesh_2'].x = torch.randn(N_mesh2, 4)
 
-print("Output shape:", out.shape)
-print("Output has nan:", torch.isnan(out).any().item())
-print("Gradients flow:", out.sum().backward() is None)
-print("Node grad exists:", nodes.grad is not None)
+def random_edges(n_src, n_dst, n_edges):
+    return torch.stack([
+        torch.randint(0, n_src, (n_edges,)),
+        torch.randint(0, n_dst, (n_edges,))
+    ])
 
-# verify different inputs give different outputs
-nodes2 = torch.randn(100, 7)
-out2 = layer(nodes2, nodes2, edge_index, edges)
-print("Different inputs give different outputs:", not torch.allclose(out, out2))
+graph['grid', 'g2m', 'mesh_2'].edge_index = random_edges(N_grid, N_mesh2, 300)
+graph['grid', 'g2m', 'mesh_2'].edge_attr  = torch.randn(300, edge_dim)
+graph['mesh_2', 'm2g', 'grid'].edge_index = random_edges(N_mesh2, N_grid, 300)
+graph['mesh_2', 'm2g', 'grid'].edge_attr  = torch.randn(300, edge_dim)
+
+for i, n in enumerate([N_mesh0, N_mesh1, N_mesh2]):
+    graph[f'mesh_{i}', 'm2m', f'mesh_{i}'].edge_index = random_edges(n, n, n*4)
+    graph[f'mesh_{i}', 'm2m', f'mesh_{i}'].edge_attr  = torch.randn(n*4, edge_dim)
+
+graph['mesh_1', 'up', 'mesh_0'].edge_index = random_edges(N_mesh1, N_mesh0, N_mesh1)
+graph['mesh_1', 'up', 'mesh_0'].edge_attr  = torch.randn(N_mesh1, edge_dim)
+graph['mesh_2', 'up', 'mesh_1'].edge_index = random_edges(N_mesh2, N_mesh1, N_mesh2)
+graph['mesh_2', 'up', 'mesh_1'].edge_attr  = torch.randn(N_mesh2, edge_dim)
+graph['mesh_0', 'down', 'mesh_1'].edge_index = random_edges(N_mesh0, N_mesh1, N_mesh1)
+graph['mesh_0', 'down', 'mesh_1'].edge_attr  = torch.randn(N_mesh1, edge_dim)
+graph['mesh_1', 'down', 'mesh_2'].edge_index = random_edges(N_mesh1, N_mesh2, N_mesh2)
+graph['mesh_1', 'down', 'mesh_2'].edge_attr  = torch.randn(N_mesh2, edge_dim)
+
+# save fake graph
+os.makedirs('data/global', exist_ok=True)
+torch.save(graph, 'data/global/graph.pt')
+
+# create fake node features
+T = 50
+npy_path = 'data/global/node_features.npy'
+fake_data = np.random.randn(T, N_grid, node_dim).astype(np.float32)
+np.save(npy_path, fake_data)
+
+# patch config
+import yaml
+config = {
+    'domain': 'global',
+    'model': {'node_dim': node_dim, 'hidden_dim': hidden_dim},
+    'data': {'train_end': 40, 'val_end': 45},
+    'training': {
+        'num_epochs': 2,
+        'lr': 0.001,
+        'gcs_checkpoint': None
+    }
+}
+with open('config.yaml', 'w') as f:
+    yaml.dump(config, f)
+
+# run training
+from training.train import train
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Using device: {device}")
+train(device=device, resume=False)
+
+# cleanup
+os.remove('data/global/graph.pt')
+os.remove('data/global/node_features.npy')
+os.remove('config.yaml')
+print("Train test passed")

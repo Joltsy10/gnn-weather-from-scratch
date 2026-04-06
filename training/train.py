@@ -5,36 +5,26 @@ import yaml
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from torch.utils.data import DataLoader
 from model.gnn import GNN
 from model.hi_gnn import HiGNN
+from data.dataset import WeatherDataset
 
 def load_config(path='config.yaml'):
     with open(path) as f:
         return yaml.safe_load(f)
 
-def load_data(data_dir):
-    node_features = torch.load(f'{data_dir}/node_features.pt')
-    edge_index    = torch.load(f'{data_dir}/edge_index.pt')
-    edge_features = torch.load(f'{data_dir}/edge_features.pt')
-    return node_features, edge_index, edge_features
+def load_lam_graph(data_dir, device):
+    from torch_geometric.data import HeteroData
+    graph = torch.load(f'{data_dir}/graph.pt', map_location=device, weights_only=False)
+    edge_dim = graph['grid', 'knn', 'grid'].edge_attr.shape[1]
+    return graph, edge_dim
 
-def load_global_graph(graph_dir, device):
-    m2m_edge_index = torch.load(f'{graph_dir}/m2m_edge_index.pt', map_location=device)
-    num_levels = len(m2m_edge_index)
-    graph = {
-        'g2m_edge_index':  torch.load(f'{graph_dir}/g2m_edge_index.pt',      map_location=device),
-        'g2m_features':    torch.load(f'{graph_dir}/g2m_features.pt',         map_location=device),
-        'm2g_edge_index':  torch.load(f'{graph_dir}/m2g_edge_index.pt',       map_location=device),
-        'm2g_features':    torch.load(f'{graph_dir}/m2g_features.pt',         map_location=device),
-        'm2m_edge_index':  m2m_edge_index,
-        'm2m_features':    torch.load(f'{graph_dir}/m2m_features.pt',         map_location=device),
-        'up_edge_index':   torch.load(f'{graph_dir}/mesh_up_edge_index.pt',   map_location=device),
-        'up_features':     torch.load(f'{graph_dir}/mesh_up_features.pt',     map_location=device),
-        'down_edge_index': torch.load(f'{graph_dir}/mesh_down_edge_index.pt', map_location=device),
-        'down_features':   torch.load(f'{graph_dir}/mesh_down_features.pt',   map_location=device),
-        'mesh_features':   torch.load(f'{graph_dir}/mesh_features.pt',        map_location=device),
-    }
-    return graph, num_levels
+def load_global_graph(data_dir, device):
+    graph = torch.load(f'{data_dir}/graph.pt', map_location=device, weights_only=False)
+    edge_dim    = graph['grid', 'g2m', graph.node_types[-1]].edge_attr.shape[1]
+    num_levels  = sum(1 for nt in graph.node_types if nt.startswith('mesh_'))
+    return graph, edge_dim, num_levels
 
 def save_checkpoint(path, epoch, model, optimizer, scheduler, best_val, gcs_path=None):
     torch.save({
@@ -54,48 +44,39 @@ def load_checkpoint(path, model, optimizer, scheduler, device):
     scheduler.load_state_dict(ckpt['scheduler_state_dict'])
     return ckpt['epoch'] + 1, ckpt['best_val']
 
-def forward(model, x, graph, domain, edge_index=None, edge_features=None):
-    if domain == 'lam':
-        return model(x, edge_index, edge_features)
-    return model(x, graph)
-
 def train(device='cpu', resume=False):
-    config   = load_config()
-    domain   = config['domain']
-    data_dir = f'data/{domain}'
-    node_dim = config['model']['node_dim']
-    accum_steps = config['training'].get('accum_steps', 16)
+    config         = load_config()
+    domain         = config['domain']
+    data_dir       = f'data/{domain}'
+    node_dim       = config['model']['node_dim']
+    hidden_dim     = config['model']['hidden_dim']
     gcs_checkpoint = config['training'].get('gcs_checkpoint', None)
-    use_bf16 = device == 'cuda'
-
-    edge_index, edge_features, graph = None, None, None
+    use_bf16       = device == 'cuda'
+    train_end      = config['data']['train_end']
+    val_end        = config['data']['val_end']
+    npy_path       = f'{data_dir}/node_features.npy'
 
     if domain == 'lam':
-        node_features, edge_index, edge_features = load_data(data_dir)
-        edge_index    = edge_index.to(device)
-        edge_features = edge_features.to(device)
-        edge_dim      = edge_features.shape[1]
-        model         = GNN(node_dim=node_dim, edge_dim=edge_dim).to(device)
+        graph, edge_dim = load_lam_graph(data_dir, device)
+        model = GNN(node_dim=node_dim, edge_dim=edge_dim, hidden_dim=hidden_dim).to(device)
     else:
-        node_features      = node_features = torch.from_numpy(np.load(f'{data_dir}/node_features.npy', mmap_mode='r'))
-        graph, num_levels  = load_global_graph(data_dir, device)
-        edge_dim           = graph['g2m_features'].shape[1]
-        model              = HiGNN(node_dim=node_dim, edge_dim=edge_dim,
-                                   num_levels=num_levels).to(device)
+        graph, edge_dim, num_levels = load_global_graph(data_dir, device)
+        model = HiGNN(node_dim=node_dim, edge_dim=edge_dim,
+                      hidden_dim=hidden_dim, num_levels=num_levels).to(device)
 
-    node_features = node_features
-    train_end     = config['data']['train_end']
-    val_end       = config['data']['val_end']
-    train_data    = node_features[:train_end]
-    val_data      = node_features[train_end:val_end]
+    train_dataset = WeatherDataset(npy_path, 0, train_end)
+    val_dataset   = WeatherDataset(npy_path, train_end, val_end)
+    num_workers = 0 if os.name == 'nt' else 4
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True,
+                            num_workers=num_workers, pin_memory=True)
+    val_loader   = DataLoader(val_dataset, batch_size=1, shuffle=False,
+                            num_workers=num_workers, pin_memory=True)
 
-    optimizer  = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
-    scheduler  = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
-    loss_fn    = nn.MSELoss()
-    best_val   = float('inf')
-    start_epoch = 0
-    K = 1
-
+    optimizer    = torch.optim.Adam(model.parameters(), lr=config['training']['lr'])
+    scheduler    = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
+    loss_fn      = nn.MSELoss()
+    best_val     = float('inf')
+    start_epoch  = 0
     checkpoint_path = f'{data_dir}/checkpoint_latest.pt'
 
     if resume and os.path.exists(checkpoint_path):
@@ -104,49 +85,41 @@ def train(device='cpu', resume=False):
 
     for epoch in range(start_epoch, config['training']['num_epochs']):
         model.train()
-        total_loss  = 0.0
-        optimizer.zero_grad()
+        total_loss = 0.0
 
-        indices = torch.randperm(train_data.shape[0] - K)
-        for t in indices:
-            t = t.item()
-            x = train_data[t].to(device)
+        for x, x_next in train_loader:
+            x      = x.squeeze(0).to(device)
+            x_next = x_next.squeeze(0).to(device)
+
+            graph['grid'].x = x
 
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_bf16):
-                loss = 0
-                for k in range(K):
-                    delta = forward(model, x, graph, domain, edge_index, edge_features)
-                    pred  = x + delta
-                    loss += loss_fn(pred, train_data[t + k + 1].to(device))
-                    x     = pred
+                delta = model(x, graph)
+                pred  = x + delta
+                loss  = loss_fn(pred, x_next)
 
-            (loss / accum_steps).backward()
-            total_loss += loss.item()
-
-            if (t + 1) % accum_steps == 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
-                optimizer.zero_grad()
-
-        if (train_data.shape[0] - K) % accum_steps != 0:
+            optimizer.zero_grad()
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            optimizer.zero_grad()
+            total_loss += loss.item()
 
         model.eval()
         val_total = 0.0
         with torch.no_grad():
-            for t in range(len(val_data) - K):
-                x = val_data[t].to(device)
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_bf16):
-                    for k in range(K):
-                        delta      = forward(model, x, graph, domain, edge_index, edge_features)
-                        pred       = x + delta
-                        val_total += loss_fn(pred, val_data[t + k + 1].to(device)).item()
-                        x          = pred
+            for x, x_next in val_loader:
+                x      = x.squeeze(0).to(device)
+                x_next = x_next.squeeze(0).to(device)
 
-        val_loss = val_total / ((len(val_data) - K) * K)
-        avg_loss = total_loss / (train_data.shape[0] - K)
+                graph['grid'].x = x
+
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_bf16):
+                    delta      = model(x, graph)
+                    pred       = x + delta
+                    val_total += loss_fn(pred, x_next).item()
+
+        val_loss = val_total / len(val_loader)
+        avg_loss = total_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} — train: {avg_loss:.6f} val: {val_loss:.6f}")
 
         if val_loss < best_val:
@@ -155,7 +128,6 @@ def train(device='cpu', resume=False):
             print(f"  new best val: {best_val:.6f}")
 
         save_checkpoint(checkpoint_path, epoch, model, optimizer, scheduler, best_val, gcs_checkpoint)
-
         scheduler.step(val_loss)
 
 if __name__ == "__main__":

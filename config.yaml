@@ -24,7 +24,6 @@ data:
 
 training:
   rollout_steps: 4
-  accum_steps: 16
   gcs_checkpoint: gs://era5-global-mesh-rayyan/checkpoints/checkpoint_latest.pt
   num_epochs: 30
   lr: 0.001
